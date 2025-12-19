@@ -8,44 +8,43 @@
     <div class="mermaid">
 
 flowchart TD
+  title["AIA Koodo Pipeline"]
+  purpose["Purpose: Ingests and processes Koodo data for AI applications"]
+  note["Owner: AIGT"]
 
-subgraph Step1_Ingestion
-    A1[" Source: GCS Bucket<br/> Bucket: Env[BUCKET_NAME]<br/> API Env: Env[API_ENV]"]
-    A2[" Articles Source: https://www.koodomobile.com/static/help/api/articles<br/> Languages: en, fr"]
-    A3[" Exclusions: Specific URLs<br/> Output: Combined JSON"]
-    A1 --> A2
-    A2 --> A3
-end
+  subgraph Step1_Ingestion
+    A[" Source: Koodo database<br/> Type: Customer data"]
+    B[" Fetching from: https://www.koodomobile.com/static/help/api/articles<br/> Tokens: en, fr"]
+    A --> B
+  end
 
-subgraph Step2_Chunking
-    B[" Method: RecursiveCharacterTextSplitter<br/> Size: 475 tokens<br/> Overlap: 50 tokens<br/> Encoding: cl100k_base"]
-    C[" Text Splitter: MarkdownHeaderTextSplitter<br/> Splits by: Headers"]
-    A3 --> B
-    B --> C
-end
+  subgraph Step2_Chunking
+    C[" Method: MarkdownHeaderTextSplitter<br/> Headers to split on: Config<br/> Strip Headers: Config"]
+    D[" Method: RecursiveCharacterTextSplitter<br/> Size: 475 tokens, Overlap: 50<br/> Splits by: cl100k_base"]
+    B --> C --> D
+  end
 
-subgraph Step3_Embedding
-    D[" Embedding Function<br/> Model: Env[EMBEDDING_MODEL_NAME]<br/> API Key: Config[litellm-proxy-key-aia-koodo]"]
-    E[" Existing Cache: .pkl File<br/> Source: Env[PICKLE_FILE]<br/> Structure: langchain_doc : embedding"]
-    C --> D
-    D --> E
-end
+  subgraph Step3_Embedding
+    E[" Model: Config[embedding_model_name]<br/> Service: OpenAI API<br/> API Key: Config[litellm-proxy-key-aia-koodo]"]
+    F[" Cache: pickle file from GCS<br/> File: Config[PICKLE_FILE]<br/>"]
+    D --> E --> F
+  end
 
-subgraph Step4_VectorDB
-    F[(Turbopuffer Vector DB)]
-    G[" Namespace: Env[INDEX_NAME]<br/> Embeddings Saved"]
-    H[" Alias: Env[ALIAS_NAME]<br/> Embedding Model: Env[EMBEDDING_MODEL_NAME]"]
-    E --> G
-    G --> H
-    H --> F
-end
+  subgraph Step4_Storing
+    G[" Service: Turbopuffer<br/> Namespace: Config[INDEX_NAME]<br/> Alias: Config[ALIAS_NAME]"]
+    H[" Firestore Collection: Config[turbopuffer-client-id-firestore-collection]<br/> Document: Namespace name"]
+    F --> G --> H
+  end
 
-subgraph Step5_Logging
-    I[(Firestore Collection)]
-    J[" Logs Saved<br/> Log Table: Env[LOG_TABLE_ID]"]
-    F --> I
-    I --> J
-end
+  subgraph Step5_Logging
+    I[" Log collection<br/> Project ID: Config[PROJECT_ID]<br/> Log Table ID: Config[LOG_TABLE_ID]"]
+    C --> I
+    E --> I
+    G --> I
+  end
+
+  title -.-> purpose
+  title -.-> note
 
     </div>
     <script type="module">

@@ -114,7 +114,8 @@ class SemanticVisitor(ast.NodeVisitor):
             arg_str = ", ".join(all_args)
             
             # Don't truncate if it contains important config keywords
-            important_keywords = ['chunk_size', 'chunk_overlap', 'model', 'namespace', 'index', 'bucket', 'path']
+            important_keywords = ['chunk_size', 'chunk_overlap', 'model', 'namespace', 'index', 'bucket', 'path', 
+                                 'alias', 'collection', 'database', 'pkl', 'pickle', 'cache', 'embedding']
             if any(kw in arg_str.lower() for kw in important_keywords):
                 # Keep full args for config-heavy calls
                 self.structure.append(f"{self._indent()}CONFIG: {'='.join(targets)} = {func_name}({arg_str})")
@@ -223,7 +224,13 @@ def ingest_directory(root_path, spec):
 @app.command()
 def main(
     path: str = typer.Argument(..., help="Path to your project folder"),
-    api_key: str = typer.Option(..., envvar="OPENAI_API_KEY")
+    api_key: str = typer.Option(..., envvar="OPENAI_API_KEY"),
+    pipeline_name: str = typer.Option(None, help="Name of the pipeline (e.g., 'Document Embedding Pipeline')"),
+    pipeline_purpose: str = typer.Option(None, help="What this pipeline does (e.g., 'Processes documents and generates embeddings')"),
+    data_type: str = typer.Option(None, help="Type of data being processed (e.g., 'PDF documents', 'JSON logs', 'CSV files')"),
+    data_source: str = typer.Option(None, help="Where the data comes from (e.g., 'GCS bucket', 'S3', 'Local filesystem')"),
+    use_case: str = typer.Option(None, help="What the pipeline is used for (e.g., 'RAG system', 'Analytics', 'ETL')"),
+    team_owner: str = typer.Option(None, help="Team or person responsible for this pipeline")
 ):
     """
     Reads a local folder and generates a Mermaid Architecture diagram.
@@ -238,13 +245,40 @@ def main(
     client = openai.OpenAI(
             api_key=api_key,
             base_url=FUEL_PROXY_URL
-        )    
+        )
+    
+    # Build metadata section if any optional info is provided
+    metadata_section = ""
+    if any([pipeline_name, pipeline_purpose, data_type, data_source, use_case, team_owner]):
+        metadata_section = "\n    PIPELINE METADATA (Use this context to enhance the diagram):\n"
+        if pipeline_name:
+            metadata_section += f"    - Pipeline Name: {pipeline_name}\n"
+        if pipeline_purpose:
+            metadata_section += f"    - Purpose: {pipeline_purpose}\n"
+        if data_type:
+            metadata_section += f"    - Data Type: {data_type}\n"
+        if data_source:
+            metadata_section += f"    - Data Source: {data_source}\n"
+        if use_case:
+            metadata_section += f"    - Use Case: {use_case}\n"
+        if team_owner:
+            metadata_section += f"    - Owner: {team_owner}\n"
     
     prompt = f"""
     You are a Technical Documentation Specialist creating adoption-friendly pipeline documentation.
+    {metadata_section}
     
     GOAL: Generate a concise Mermaid flowchart showing WHAT the pipeline does and WHAT configuration it uses.
     Focus on extracting ACTUAL configuration values from the code, not generic descriptions.
+    
+    METADATA USAGE (IMPORTANT - Use these to enhance the diagram):
+    - If Pipeline Name is provided, MUST use it as the diagram title using: title(Pipeline Name)
+    - If Purpose is provided, MUST add it as an annotation below the title: purpose[Purpose: description]
+    - If Data Type is provided, MUST reference it in the first ingestion node (e.g., "Type: PDF documents")
+    - If Data Source is provided, MUST label it in the first ingestion node (e.g., "Source: GCS bucket")
+    - If Use Case is provided, MUST add context to the final output/destination nodes (e.g., "Use: RAG system")
+    - If Owner is provided, MUST add it as a note: note[Owner: Team Name]
+    - Connect title/purpose/note nodes to the main flow or group them at the top
     
     CRITICAL EXTRACTION RULES:
     1. **Look for LITERAL VALUES in the code trace**:
@@ -269,23 +303,32 @@ def main(
     EXTRACTION TARGETS:
     - **Chunking**: Method class name, chunk_size (number), chunk_overlap (number)
     - **Embeddings**: Exact model name string, API service (OpenAI/Cohere/etc)
-    - **Source**: Bucket names, file paths, collection names
-    - **Storage**: 
-      * File format (.pkl/.json) AND internal structure
-      * For .pkl files: Specify if it's "page_content : embedding" or "langchain_doc : embedding"
-      * Look for pickle.dump() calls to identify the data structure being saved
+    - **Source**: Bucket names, file paths, collection names, API endpoints
+    - **Cache/Intermediate Storage**: 
+      * File format (.pkl/.json/.parquet) - MUST extract the actual filename if present
+      * For .pkl files: Specify the data structure (e.g., "Dict[doc_id: embedding]", "List[LangChain Documents]")
+      * Look for pickle.dump(), pickle.load(), or file write operations
+      * Include the variable name being saved (e.g., "embeddings.pkl stores: doc_embeddings_dict")
     - **Vector DB**: 
-      * Service name (Pinecone/Turbopuffer/etc)
-      * Namespace name (extract the actual string value, e.g., "production-docs", "dev-embeddings")
+      * Service name (Pinecone/Turbopuffer/Weaviate/etc)
+      * Namespace name (extract the actual string value or config key, e.g., "production-docs" or "Config[INDEX_NAME]")
       * Index name if different from namespace
-      * Look for upsert() calls and their namespace parameter
+      * Alias name if used (e.g., for Turbopuffer alias or Pinecone index alias)
+      * Look for upsert() calls and their namespace/alias parameters
+    - **Document Storage (Firestore/MongoDB/etc)**:
+      * Database/Collection name
+      * Document structure or key fields being stored
+      * Any alias or reference names used
+      * Look for .set(), .add(), .update() operations
     
     OUTPUT FORMAT:
     - Use `flowchart TD`
-    - Each node: 2-3 bullet points MAX
+    - Each node: 2-3 bullet points MAX using bullet character (•)
+    - Format bullets with <br/> for line breaks: "• Item 1<br/>• Item 2<br/>• Item 3"
     - ALL nodes must be connected in a logical flow
     - Use cylinder shapes `[(Name)]` for databases/storage
-    - Group related steps in subgraphs
+    - Group related steps in subgraphs with descriptive names (e.g., Step1_Ingestion, Step2_Chunking)
+    - If metadata is provided, include title/purpose/owner nodes at the top
     
     EXAMPLE (GOOD):
     ```

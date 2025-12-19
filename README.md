@@ -41,11 +41,33 @@ OPENAI_API_KEY=your-api-key-here
 python main.py <path-to-project-folder>
 ```
 
+### Optional Metadata Parameters
+
+Enhance your diagram with contextual information about your pipeline:
+
+```bash
+python main.py <path> --pipeline-name "Document Embedding Pipeline"
+python main.py <path> --pipeline-purpose "Processes documents and generates embeddings"
+python main.py <path> --data-type "PDF documents"
+python main.py <path> --data-source "GCS bucket"
+python main.py <path> --use-case "RAG system"
+python main.py <path> --team-owner "Data Engineering Team"
+```
+
 ### Examples
 
 ```bash
-# Analyze a local project
+# Basic analysis
 python main.py C:\Users\YourName\Projects\my-project
+
+# With metadata for better context
+python main.py C:\Projects\embedding-pipeline \
+  --pipeline-name "Document Embedding Pipeline" \
+  --pipeline-purpose "Processes PDF documents and generates embeddings for RAG" \
+  --data-type "PDF documents" \
+  --data-source "GCS bucket: gs://company-docs" \
+  --use-case "RAG system for customer support" \
+  --team-owner "Data Engineering Team"
 
 # Analyze a specific subdirectory
 python main.py "C:\Users\YourName\Downloads\project\src"
@@ -53,6 +75,19 @@ python main.py "C:\Users\YourName\Downloads\project\src"
 # Provide API key via command line
 python main.py C:\Projects\my-app --api-key sk-your-key-here
 ```
+
+### Metadata Parameters
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `--pipeline-name` | Name of the pipeline | "Document Embedding Pipeline" |
+| `--pipeline-purpose` | What the pipeline does | "Processes documents and generates embeddings" |
+| `--data-type` | Type of data being processed | "PDF documents", "JSON logs", "CSV files" |
+| `--data-source` | Where the data comes from | "GCS bucket", "S3", "Local filesystem" |
+| `--use-case` | What the pipeline is used for | "RAG system", "Analytics", "ETL" |
+| `--team-owner` | Team or person responsible | "Data Engineering Team", "john@company.com" |
+
+**Note:** All metadata parameters are optional. The tool will work without them, but providing context helps generate more accurate and useful documentation.
 
 ### Important Notes
 
