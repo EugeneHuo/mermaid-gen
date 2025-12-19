@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Mermaid Diagram</title>
+</head>
+<body>
+    <div class="mermaid">
+
+flowchart TD
+
+subgraph Step1_DataIngestion
+    A["• Source: GCS Bucket {{BUCKET_NAME}}<br/>• Input File: JSON<br/>• Config Path: {{PROJECT_ID}}"]
+    B["• Filter Exclusions:<br/>• Skipped URLs<br/>• Empty Content"]
+end
+
+subgraph Step2_TextChunking
+    C["• Method: RecursiveCharacterTextSplitter<br/>• Chunk Size: Default<br/>• Overlap: Default"]
+    D["• Method: MarkdownHeaderTextSplitter<br/>• Splitting by Headers"]
+end
+
+subgraph Step3_Embeddings
+    E["• Model: {{EMBEDDING_MODEL_NAME}}<br/>• Embedding Function from Default API"]
+    F["• Pickle Cache: {{PICKLE_FILE}}<br/>• Loading from GCS"]
+end
+
+subgraph Step4_VectorDBStorage
+    G["[(Turbopuffer Namespaces)]<br/>• Namespace: {{INDEX_NAME}}<br/>• Collections: Default"]
+    H["[(Firestore Admin)]<br/>• Write Embedding Meta<br/>• Namespaced Records"]
+end
+
+subgraph Step5_AlertsAndLogging
+    I["• Webhook: {{ALERT_WEBHOOK_URL}}<br/>• Alerts on Persistent Errors"]
+    J["• Logs to Firestore<br/>• Structure Includes Duration, Status"]
+end
+
+A --> B
+B --> C
+C --> E
+E --> F
+F --> G
+G --> H
+I --> J
+
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true });
+    </script>
+</body>
+</html>

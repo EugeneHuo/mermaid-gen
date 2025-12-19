@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Mermaid Diagram</title>
+</head>
+<body>
+    <div class="mermaid">
+
+flowchart TD
+
+subgraph Step1_Ingestion
+    A1[" Source: GCS Bucket<br/> Bucket: Env[BUCKET_NAME]<br/> API Env: Env[API_ENV]"]
+    A2[" Articles Source: https://www.koodomobile.com/static/help/api/articles<br/> Languages: en, fr"]
+    A3[" Exclusions: Specific URLs<br/> Output: Combined JSON"]
+    A1 --> A2
+    A2 --> A3
+end
+
+subgraph Step2_Chunking
+    B[" Method: RecursiveCharacterTextSplitter<br/> Size: 475 tokens<br/> Overlap: 50 tokens<br/> Encoding: cl100k_base"]
+    C[" Text Splitter: MarkdownHeaderTextSplitter<br/> Splits by: Headers"]
+    A3 --> B
+    B --> C
+end
+
+subgraph Step3_Embedding
+    D[" Embedding Function<br/> Model: Env[EMBEDDING_MODEL_NAME]<br/> API Key: Config[litellm-proxy-key-aia-koodo]"]
+    E[" Existing Cache: .pkl File<br/> Source: Env[PICKLE_FILE]<br/> Structure: langchain_doc : embedding"]
+    C --> D
+    D --> E
+end
+
+subgraph Step4_VectorDB
+    F[(Turbopuffer Vector DB)]
+    G[" Namespace: Env[INDEX_NAME]<br/> Embeddings Saved"]
+    H[" Alias: Env[ALIAS_NAME]<br/> Embedding Model: Env[EMBEDDING_MODEL_NAME]"]
+    E --> G
+    G --> H
+    H --> F
+end
+
+subgraph Step5_Logging
+    I[(Firestore Collection)]
+    J[" Logs Saved<br/> Log Table: Env[LOG_TABLE_ID]"]
+    F --> I
+    I --> J
+end
+
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true });
+    </script>
+</body>
+</html>
