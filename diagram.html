@@ -8,43 +8,44 @@
     <div class="mermaid">
 
 flowchart TD
-  title["AIA Koodo Pipeline"]
-  purpose["Purpose: Ingests and processes Koodo data for AI applications"]
-  note["Owner: AIGT"]
+    subgraph Metadata
+        title["Pipeline Name: json_to_tpuf_milo"]
+        purpose["Purpose: Process JSON files and upload embeddings to Turbopuffer"]
+        note["Owner: Milo Team"]
+    end
 
-  subgraph Step1_Ingestion
-    A[" Source: Koodo database<br/> Type: Customer data"]
-    B[" Fetching from: https://www.koodomobile.com/static/help/api/articles<br/> Tokens: en, fr"]
+    subgraph Step1_Ingestion
+        A[" Type: JSON files<br/> Source: Config[BUCKET_NAME]<br/> Prefix: Config[PREFIX]"]
+        B[" Latest file: Config[get_latest_file(project_id, bucket_name, prefix)]<br/> Document name: latest_json_file.name.replace(prefix, '').replace('.json', '')"]
+    end
+
+    subgraph Step2_Chunking
+        C[" Method: RecursiveCharacterTextSplitter<br/> Size: 1000 tokens, Overlap: 50<br/> Splits by: Markdown headers"]
+    end
+
+    subgraph Step3_Embedding
+        D[" Model: text-embedding-ada-002<br/> Service: OpenAI API<br/> Config: embedding_func(model=embedding_model_name, openai_api_key=Config[litellm-proxy-key-aia-milo])"]
+        E[" Cache: Config[get_pickle_from_gcs(project_id, bucket_name, pkl_file_name)]<br/> File: embeddings.pkl"]
+    end
+
+    subgraph Step4_Storage
+        F[" Vector DB: Turbopuffer<br/> Namespace: Config[namespace_name]<br/> Batch size: 15000"]
+        G[" Firestore: Config[turbopuffer-client-id-firestore-collection]<br/> Document: namespace_name"]
+    end
+
+    subgraph Step5_Alerts
+        H[" Webhook: Config[ALERT_WEBHOOK_URL]<br/> Log Table: Config[LOG_TABLE_ID]"]
+    end
+
+    title --> purpose
+    title --> note
     A --> B
-  end
-
-  subgraph Step2_Chunking
-    C[" Method: MarkdownHeaderTextSplitter<br/> Headers to split on: Config<br/> Strip Headers: Config"]
-    D[" Method: RecursiveCharacterTextSplitter<br/> Size: 475 tokens, Overlap: 50<br/> Splits by: cl100k_base"]
-    B --> C --> D
-  end
-
-  subgraph Step3_Embedding
-    E[" Model: Config[embedding_model_name]<br/> Service: OpenAI API<br/> API Key: Config[litellm-proxy-key-aia-koodo]"]
-    F[" Cache: pickle file from GCS<br/> File: Config[PICKLE_FILE]<br/>"]
-    D --> E --> F
-  end
-
-  subgraph Step4_Storing
-    G[" Service: Turbopuffer<br/> Namespace: Config[INDEX_NAME]<br/> Alias: Config[ALIAS_NAME]"]
-    H[" Firestore Collection: Config[turbopuffer-client-id-firestore-collection]<br/> Document: Namespace name"]
-    F --> G --> H
-  end
-
-  subgraph Step5_Logging
-    I[" Log collection<br/> Project ID: Config[PROJECT_ID]<br/> Log Table ID: Config[LOG_TABLE_ID]"]
-    C --> I
-    E --> I
-    G --> I
-  end
-
-  title -.-> purpose
-  title -.-> note
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
 
     </div>
     <script type="module">

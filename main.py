@@ -3,11 +3,53 @@ import typer
 import openai
 import pathspec
 from pathlib import Path
+import tokenize
+import io
+from typing import List, Dict
 
 app = typer.Typer()
 FUEL_PROXY_URL = "https://api-beta.fuelix.ai"
 
 import ast
+
+# Comment extraction function
+def extract_comments_with_context(source_code: str) -> List[Dict]:
+    """Extract comments with their line numbers and categorize them"""
+    comments = []
+    
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(source_code).readline)
+        
+        for token in tokens:
+            if token.type == tokenize.COMMENT:
+                comment_text = token.string.strip('#').strip()
+                
+                # Skip empty comments
+                if not comment_text:
+                    continue
+                
+                # Categorize comments
+                if comment_text.startswith('=') or comment_text.startswith('-'):
+                    comment_type = 'section_header'
+                elif comment_text.upper().startswith(('TODO', 'FIXME', 'HACK', 'XXX')):
+                    comment_type = 'todo'  # Skip these
+                elif comment_text.upper().startswith('STEP') or 'STEP' in comment_text.upper()[:20]:
+                    comment_type = 'step_marker'
+                elif len(comment_text) > 100:
+                    comment_type = 'docstring'  # Long explanatory comment
+                else:
+                    comment_type = 'explanation'
+                
+                comments.append({
+                    'line': token.start[0],
+                    'text': comment_text,
+                    'type': comment_type,
+                    'raw': token.string
+                })
+    except:
+        pass
+    
+    return comments
 
 class PipelineVisitor(ast.NodeVisitor):
     def __init__(self):
@@ -70,12 +112,42 @@ class PipelineVisitor(ast.NodeVisitor):
 import ast
 
 class SemanticVisitor(ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self, comments: List[Dict] = None):
         self.structure = []
         self.indent_level = 0
+        self.comments = comments or []
+        self.last_line = 0
 
     def _indent(self):
         return "  " * self.indent_level
+    
+    def _get_comments_before_line(self, line_num: int) -> List[Dict]:
+        """Get comments that appear before this line"""
+        relevant_comments = []
+        
+        # Look for comments within 2 lines before this code
+        for comment in self.comments:
+            if self.last_line < comment['line'] <= line_num:
+                # Comment is between last processed line and current line
+                if line_num - comment['line'] <= 2:  # Within 2 lines
+                    # Skip TODO comments
+                    if comment['type'] != 'todo':
+                        relevant_comments.append(comment)
+        
+        return relevant_comments
+    
+    def _format_comment(self, comment: Dict) -> str:
+        """Format comment for output"""
+        if comment['type'] == 'section_header':
+            return f"\n{'='*70}\n{comment['text']}\n{'='*70}"
+        elif comment['type'] == 'step_marker':
+            return f"\n>>> {comment['text']}"
+        elif comment['type'] == 'docstring':
+            # Truncate long comments
+            text = comment['text'][:150] + "..." if len(comment['text']) > 150 else comment['text']
+            return f"  ## {text}"
+        else:
+            return f"  # {comment['text']}"
 
     def visit_Import(self, node):
         # We can skip imports now, they clutter the logic flow
@@ -85,13 +157,29 @@ class SemanticVisitor(ast.NodeVisitor):
         pass
 
     def visit_If(self, node):
+        # Get comments before this IF statement
+        if hasattr(node, 'lineno'):
+            comments = self._get_comments_before_line(node.lineno)
+            for comment in comments:
+                self.structure.append(self._format_comment(comment))
+        
         condition = ast.unparse(node.test)
         self.structure.append(f"{self._indent()}IF CHECK: {condition}")
+        
+        if hasattr(node, 'lineno'):
+            self.last_line = node.lineno
+        
         self.indent_level += 1
         self.generic_visit(node)
         self.indent_level -= 1
 
     def visit_Assign(self, node):
+        # Get comments before this assignment
+        if hasattr(node, 'lineno'):
+            comments = self._get_comments_before_line(node.lineno)
+            for comment in comments:
+                self.structure.append(self._format_comment(comment))
+        
         targets = [ast.unparse(t) for t in node.targets]
         # logic to capture important data transformations
         if isinstance(node.value, ast.Call):
@@ -135,8 +223,18 @@ class SemanticVisitor(ast.NodeVisitor):
             value = node.value.value
             if isinstance(value, str) and len(value) < 100:
                 self.structure.append(f"{self._indent()}CONSTANT: {'='.join(targets)} = \"{value}\"")
+        
+        # Update last processed line
+        if hasattr(node, 'lineno'):
+            self.last_line = node.lineno
 
     def visit_Call(self, node):
+        # Get comments before this call
+        if hasattr(node, 'lineno'):
+            comments = self._get_comments_before_line(node.lineno)
+            for comment in comments:
+                self.structure.append(self._format_comment(comment))
+        
         # This is the most important part: Capturing Logging and External Calls
         func_name = ast.unparse(node.func)
         
@@ -160,10 +258,15 @@ class SemanticVisitor(ast.NodeVisitor):
         self.generic_visit(node)
         self.indent_level -= 1
 
-def parse_pipeline_script(file_content):
+def parse_pipeline_script(file_content, include_comments=False):
     try:
+        # Extract comments if requested
+        comments = []
+        if include_comments:
+            comments = extract_comments_with_context(file_content)
+        
         tree = ast.parse(file_content)
-        visitor = SemanticVisitor()
+        visitor = SemanticVisitor(comments=comments)
         # Iterate over top-level nodes
         for node in tree.body:
             visitor.visit(node)
@@ -180,7 +283,7 @@ def get_gitignore_spec(path):
     return None
 
 # 2. The Ingestion Logic
-def ingest_directory(root_path, spec):
+def ingest_directory(root_path, spec, include_comments=False):
     project_context = ""
     
     # Walk the directory
@@ -214,7 +317,7 @@ def ingest_directory(root_path, spec):
                     
                     # --- NEW LOGIC START ---
                     # Instead of sending raw content, we parse the structure
-                    skeleton = parse_pipeline_script(content)
+                    skeleton = parse_pipeline_script(content, include_comments=include_comments)
                     project_context += f"\n--- PIPELINE: {rel_path} ---\n{skeleton}\n"
                     # --- NEW LOGIC END ---
                     
@@ -230,17 +333,40 @@ def main(
     data_type: str = typer.Option(None, help="Type of data being processed (e.g., 'PDF documents', 'JSON logs', 'CSV files')"),
     data_source: str = typer.Option(None, help="Where the data comes from (e.g., 'GCS bucket', 'S3', 'Local filesystem')"),
     use_case: str = typer.Option(None, help="What the pipeline is used for (e.g., 'RAG system', 'Analytics', 'ETL')"),
-    team_owner: str = typer.Option(None, help="Team or person responsible for this pipeline")
+    team_owner: str = typer.Option(None, help="Team or person responsible for this pipeline"),
+    include_comments: bool = typer.Option(False, "--include-comments", "-c", help="Include code comments in AST parsing for better context"),
+    debug: bool = typer.Option(False, "--debug", "-d", help="Save intermediate AST parsing results to ast_debug_output.txt")
 ):
     """
     Reads a local folder and generates a Mermaid Architecture diagram.
     """
     print(f"📂 Scanning project at: {path}...")
     
+    if include_comments:
+        print("💬 Comment extraction enabled - including developer comments in analysis")
+    
     spec = get_gitignore_spec(path)
-    context = ingest_directory(path, spec)
+    context = ingest_directory(path, spec, include_comments=include_comments)
     
     print(f"📦 Context size: {len(context)} characters. Sending to LLM...")
+    
+    # Save intermediate AST parsing results if debug flag is enabled
+    if debug:
+        debug_file = "ast_debug_output.txt"
+        with open(debug_file, "w", encoding="utf-8") as f:
+            f.write("="*80 + "\n")
+            f.write("INTERMEDIATE AST PARSING RESULTS\n")
+            f.write("="*80 + "\n\n")
+            f.write(f"Total context size: {len(context)} characters\n")
+            f.write(f"Source directory: {path}\n\n")
+            f.write("="*80 + "\n")
+            f.write("PARSED CONTENT (sent to LLM):\n")
+            f.write("="*80 + "\n\n")
+            f.write(context)
+            f.write("\n\n" + "="*80 + "\n")
+            f.write("END OF AST PARSING RESULTS\n")
+            f.write("="*80 + "\n")
+        print(f"📝 Debug mode: AST parsing results saved to '{debug_file}'")
 
     client = openai.OpenAI(
             api_key=api_key,
@@ -365,7 +491,9 @@ def main(
 
     response = client.chat.completions.create(
         model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,
+        seed=42
     )
     
     # Clean the response

@@ -1,0 +1,273 @@
+================================================================================
+INTERMEDIATE AST PARSING RESULTS
+================================================================================
+
+Total context size: 19124 characters
+Source directory: C:\Users\T773534\Downloads\gen-ai-data-ingestion-1\gen-ai-data-ingestion\src\aia_milo_pipeline
+
+================================================================================
+PARSED CONTENT (sent to LLM):
+================================================================================
+
+
+--- PIPELINE: json_to_tpuf_milo.py ---
+ASSIGN: absolute_path = CALL os.path.dirname(__file__)
+CONSTANT: relative_path = "../"
+CONFIG: full_path = os.path.realpath(os.path.join(absolute_path, relative_path))
+ACTION: sys.path.append(full_path)
+ASSIGN: project_id = CALL os.getenv('PROJECT_ID')
+CONFIG: bucket_name = os.getenv('BUCKET_NAME')
+CONFIG: pkl_file_name = os.getenv('PICKLE_FILE')
+ASSIGN: application_name = CALL os.getenv('APPLICATION_NAME')
+ASSIGN: prefix = CALL os.getenv('PREFIX')
+ASSIGN: api_env = CALL os.getenv('API_ENV')
+CONFIG: alias_name = os.getenv('ALIAS_NAME')
+ASSIGN: aia_client_id = CALL Config.fetch('aia-client-id')
+ASSIGN: log_table_id = CALL os.getenv('LOG_TABLE_ID')
+ASSIGN: webhook_url = CALL os.getenv('ALERT_WEBHOOK_URL')
+ASSIGN: db = CALL firestore.Client(project=project_id)
+ASSIGN: start_time = CALL time.time()
+ASSIGN: start_time_string = CALL datetime.utcfromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S')
+CONFIG: latest_json_file = get_latest_file(project_id, bucket_name, prefix)
+ASSIGN: document_name = CALL latest_json_file.name.replace(prefix, '').replace('.json', '')
+ASSIGN: doc_ref = CALL db.collection(firestore_collection).document(document_name)
+ASSIGN: doc = CALL doc_ref.get()
+IF CHECK: not doc.exists or doc.to_dict()['status'] == 'failed' or doc.to_dict()['status'] == 'started'
+  ACTION: doc.to_dict()
+  ACTION: doc.to_dict()
+  DATA_STRUCT: data = Keys['start_timestamp', 'end_timestamp', 'duration_in_seconds', 'job_type', 'num_embeddings', 'status', 'input_file', 'output_embedding_file']
+  ACTION: db.collection(firestore_collection).document(document_name).set(data)
+  ASSIGN: latest_json_file_data = CALL json.loads(latest_json_file.download_as_bytes())
+  DATA_STRUCT: d['metadata'] = Keys['page_title', 'type', 'language', 'brands', 'persona', 'provinces', 'publish_date', 'related_links', 'status', 'line_of_business', 'products_and_services', 'source']
+  ACTION: langchain_documents.append(Document(page_content=markdownify.markdownify(d['b...)
+  ASSIGN: markdown_splitter = CALL MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+  ASSIGN: md_header_splits = CALL markdown_splitter.split_text([doc.page_content for doc in langchain_documents][...)
+  ACTION: range(len(langchain_documents))
+  ASSIGN: md_header_splits = CALL markdown_splitter.split_text(langchain_documents[doc_num].page_content)
+  CONFIG: recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50, length_function=len)
+  ASSIGN: md_source_chunks_token = CALL recursive_text_splitter.split_documents(markdown_docs)
+  DATA_STRUCT: docs = Keys[]
+  CONSTANT: embedding_model_name = "text-embedding-ada-002"
+  CONFIG: embedding_func = get_default_embedding_func(model=embedding_model_name, openai_api_key=Config.fetch('litellm-proxy-key-aia-milo'))
+  ASSIGN: start_time_embedding = CALL time.time()
+  CONFIG: pkl_file = get_pickle_from_gcs(project_id, bucket_name, pkl_file_name)
+  IF CHECK: pkl_file is not None
+    LOG_EVENT: "Pickle file loaded successfully."
+    IF CHECK: isinstance(pkl_file['docs'][0], str)
+      ACTION: isinstance(pkl_file['docs'][0], str)
+    DATA_STRUCT: embedding_dict = Keys[]
+    LOG_EVENT: "Failed to load pickle file or file doesn't exist."
+  CONFIG: (new_embeddings_dict, new_embed_count) = process_embeddings(docs, embedding_func=embedding_func, embedding_dict=embedding_dict)
+  CONFIG: embeddings_list = list(new_embeddings_dict.values())
+  DATA_STRUCT: source_docs = Keys['docs', 'embeddings']
+  LOG_EVENT: "Finished processing chunks."
+  ASSIGN: end_time_embedding = CALL time.time()
+  ACTION: upload_pkl_file(project_id, bucket_name)
+  ASSIGN: index_name = CALL document_name.replace(':', '-')
+  ASSIGN: tpuf_helpers = CALL TurbopufferHelpers()
+  ASSIGN: tpuf_namespaces = CALL tpuf_helpers.get_namespaces()
+  CONFIG: (tpuf_upload, err) = tpuf_helpers.from_documents_with_bm25(namespace=namespace_name, documents=embedded_chunks_list, embeddings_list=embeddings_list, embedding_model=embedding_model_name, batch_size=15000)
+  IF CHECK: err
+    ACTION: Exception(f'Error uploading to turbopuffer: {err}')
+    CONFIG: create_alias = tpuf_helpers.create_alias(namespace=namespace_name, alias=alias_name)
+    IF CHECK: create_alias
+      LOG_EVENT: "Failed to create alias, will try updating instead"
+    IF CHECK: not alias_success
+      CONFIG: update_alias = tpuf_helpers.update_alias(namespace=namespace_name, alias=alias_name)
+      IF CHECK: update_alias
+        LOG_EVENT: "Failed to update alias"
+    IF CHECK: not alias_success
+      ACTION: ValueError('Both create and update alias operations failed')
+    IF CHECK: ns != namespace_name
+      ACTION: tpuf_helpers.delete_namespace(ns)
+      ASSIGN: namespace_doc_ref = CALL db.collection(Config.fetch('turbopuffer-client-id-firestore-collection')).document(ns)
+      ACTION: namespace_doc_ref.delete()
+  DATA_STRUCT: tpuf_firestore_data = Keys['admin', 'write', 'read', 'user', 'email', 'embedding_model']
+  CONFIG: tpuf_doc_ref = db.collection(Config.fetch('turbopuffer-client-id-firestore-collection')).document(namespace_name)
+  ACTION: tpuf_doc_ref.set(tpuf_firestore_data)
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: data = Keys['start_timestamp', 'end_timestamp', 'duration_in_seconds', 'job_type', 'num_embeddings', 'num_new_embeddings', 'status', 'input_file']
+  ACTION: db.collection(firestore_collection).document(document_name).set(data)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'num_new_embeddings', 'input_file', 'output', 'status', 'error']
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: data = Keys['start_timestamp', 'end_timestamp', 'duration_in_seconds', 'job_type', 'num_embeddings', 'num_new_embeddings', 'status', 'input_file', 'output_file', 'error']
+  ACTION: db.collection(firestore_collection).document(document_name).set(data)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'num_new_embeddings', 'input_file', 'output', 'status', 'error']
+  ACTION: send_alert_to_chat(log_entry, webhook_url)
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'num_new_embeddings', 'input_file', 'output', 'status', 'error']
+  IF CHECK: check_persistent_no_document_error(project_id, log_table_id, days_threshold=3)
+    ACTION: check_persistent_no_document_error(project_id, log_table_id)
+    ACTION: send_alert_to_chat(log_entry, webhook_url)
+
+--- PIPELINE: json_to_tpuf_milo_np.py ---
+ASSIGN: absolute_path = CALL os.path.dirname(__file__)
+CONSTANT: relative_path = "../"
+CONFIG: full_path = os.path.realpath(os.path.join(absolute_path, relative_path))
+ACTION: sys.path.append(full_path)
+ASSIGN: project_id = CALL os.getenv('PROJECT_ID')
+CONFIG: bucket_name = os.getenv('BUCKET_NAME')
+CONFIG: pkl_file_name = os.getenv('PICKLE_FILE')
+ASSIGN: application_name = CALL os.getenv('APPLICATION_NAME')
+ASSIGN: prefix = CALL os.getenv('PREFIX')
+ASSIGN: api_env = CALL os.getenv('API_ENV')
+CONFIG: alias_name = os.getenv('ALIAS_NAME')
+ASSIGN: aia_client_id = CALL Config.fetch('aia-client-id')
+ASSIGN: log_table_id = CALL os.getenv('LOG_TABLE_ID')
+ASSIGN: webhook_url = CALL os.getenv('ALERT_WEBHOOK_URL')
+CONFIG: embedding_model_name = os.getenv('EMBEDDING_MODEL_NAME')
+ASSIGN: db = CALL firestore.Client(project=project_id)
+ASSIGN: start_time = CALL time.time()
+ASSIGN: start_time_string = CALL datetime.utcfromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S')
+CONFIG: latest_json_file = get_latest_file(project_id, bucket_name, prefix)
+ASSIGN: document_name = CALL latest_json_file.name.replace(prefix, '').replace('.json', '')
+ASSIGN: doc_ref = CALL db.collection(firestore_collection).document(document_name)
+ASSIGN: doc = CALL doc_ref.get()
+IF CHECK: not doc.exists or doc.to_dict()['status'] == 'failed' or doc.to_dict()['status'] == 'started'
+  ACTION: doc.to_dict()
+  ACTION: doc.to_dict()
+  DATA_STRUCT: data = Keys['start_timestamp', 'end_timestamp', 'duration_in_seconds', 'job_type', 'num_embeddings', 'status', 'input_file', 'output_embedding_file']
+  ACTION: db.collection(firestore_collection).document(document_name).set(data)
+  ASSIGN: latest_json_file_data = CALL json.loads(latest_json_file.download_as_bytes())
+  DATA_STRUCT: d['metadata'] = Keys['page_title', 'type', 'language', 'brands', 'persona', 'provinces', 'publish_date', 'related_links', 'status', 'line_of_business', 'products_and_services', 'source']
+  ACTION: langchain_documents.append(Document(page_content=markdownify.markdownify(d['b...)
+  ASSIGN: markdown_splitter = CALL MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+  ASSIGN: md_header_splits = CALL markdown_splitter.split_text([doc.page_content for doc in langchain_documents][...)
+  ACTION: range(len(langchain_documents))
+  ASSIGN: md_header_splits = CALL markdown_splitter.split_text(langchain_documents[doc_num].page_content)
+  CONFIG: recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50, length_function=len)
+  ASSIGN: md_source_chunks_token = CALL recursive_text_splitter.split_documents(markdown_docs)
+  CONFIG: embedding_func = get_default_embedding_func(model=embedding_model_name, openai_api_key=Config.fetch('litellm-proxy-key-aia-milo'))
+  DATA_STRUCT: docs = Keys[]
+  ASSIGN: start_time_embedding = CALL time.time()
+  CONFIG: pkl_file = get_pickle_from_gcs(project_id, bucket_name, pkl_file_name)
+  IF CHECK: pkl_file is not None
+    IF CHECK: isinstance(pkl_file['docs'][0], str)
+      ACTION: isinstance(pkl_file['docs'][0], str)
+    DATA_STRUCT: embedding_dict = Keys[]
+    LOG_EVENT: "Failed to load pickle file or file doesn't exist."
+  CONFIG: (new_embeddings_dict, new_embed_count) = process_embeddings(docs, embedding_func=embedding_func, embedding_dict=embedding_dict)
+  CONFIG: embeddings_list = list(new_embeddings_dict.values())
+  DATA_STRUCT: source_docs = Keys['docs', 'embeddings']
+  LOG_EVENT: "Finished processing chunks."
+  ASSIGN: end_time_embedding = CALL time.time()
+  ACTION: upload_pkl_file(project_id, bucket_name)
+  ASSIGN: tpuf_helpers = CALL TurbopufferHelpers()
+  ASSIGN: tpuf_namespaces = CALL tpuf_helpers.get_namespaces()
+  CONFIG: (tpuf_upload, err) = tpuf_helpers.from_documents_with_bm25(namespace=namespace_name, documents=embedded_chunks_list, embeddings_list=embeddings_list, embedding_model=embedding_model_name, batch_size=15000)
+  IF CHECK: err
+    ACTION: Exception(f'Error uploading to turbopuffer: {err}')
+    CONFIG: create_alias = tpuf_helpers.create_alias(namespace=namespace_name, alias=alias_name, embedding_model=embedding_model_name)
+    IF CHECK: create_alias
+      LOG_EVENT: "Failed to create alias, will try updating instead"
+    IF CHECK: not alias_success
+      CONFIG: update_alias = tpuf_helpers.update_alias(namespace=namespace_name, alias=alias_name, embedding_model=embedding_model_name)
+      IF CHECK: update_alias
+        LOG_EVENT: "Failed to update alias"
+    IF CHECK: not alias_success
+      ACTION: ValueError('Both create and update alias operations failed')
+    IF CHECK: ns != namespace_name
+      ACTION: tpuf_helpers.delete_namespace(ns)
+      ASSIGN: namespace_doc_ref = CALL db.collection(Config.fetch('turbopuffer-client-id-firestore-collection')).document(ns)
+      ACTION: namespace_doc_ref.delete()
+  DATA_STRUCT: tpuf_firestore_data = Keys['admin', 'write', 'read', 'user', 'email', 'embedding_model']
+  CONFIG: tpuf_doc_ref = db.collection(Config.fetch('turbopuffer-client-id-firestore-collection')).document(namespace_name)
+  ACTION: tpuf_doc_ref.set(tpuf_firestore_data)
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: data = Keys['start_timestamp', 'end_timestamp', 'duration_in_seconds', 'job_type', 'num_embeddings', 'status', 'input_file', 'tpuf_namespace']
+  ACTION: db.collection(firestore_collection).document(document_name).set(data)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: data = Keys['start_timestamp', 'end_timestamp', 'duration_in_seconds', 'job_type', 'num_records', 'status', 'input_file', 'output_file', 'error']
+  ACTION: db.collection(firestore_collection).document(document_name).set(data)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+
+--- PIPELINE: json_to_turbopuffer.py ---
+ASSIGN: absolute_path = CALL os.path.dirname(__file__)
+CONSTANT: relative_path = "../"
+CONFIG: full_path = os.path.realpath(os.path.join(absolute_path, relative_path))
+ACTION: sys.path.append(full_path)
+ASSIGN: project_id = CALL os.getenv('PROJECT_ID')
+CONFIG: bucket_name = os.getenv('BUCKET_NAME')
+ASSIGN: prefix = CALL os.getenv('PREFIX')
+ASSIGN: job_type = CALL os.getenv('JOB_TYPE')
+ASSIGN: api_env = CALL os.getenv('API_ENV')
+ASSIGN: db = CALL firestore.Client(project=project_id)
+ASSIGN: start_time = CALL time.time()
+ASSIGN: start_time_string = CALL datetime.utcfromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S')
+CONFIG: latest_json_file = get_latest_file(project_id, bucket_name, prefix)
+ASSIGN: document_name = CALL latest_json_file.name.replace(prefix, '').replace('.json', '')
+ASSIGN: doc_ref = CALL db.collection(firestore_collection).document(document_name)
+ASSIGN: doc = CALL doc_ref.get()
+IF CHECK: not doc.exists or doc.to_dict()['status'] == 'failed' or doc.to_dict()['status'] == 'started'
+  ACTION: doc.to_dict()
+  ACTION: doc.to_dict()
+  DATA_STRUCT: data = Keys['start_timestamp', 'end_timestamp', 'duration_in_seconds', 'job_type', 'num_embeddings', 'status', 'input_file', 'tpf_namespace']
+  ACTION: db.collection(firestore_collection).document(document_name).set(data)
+  ASSIGN: latest_json_file_data = CALL json.loads(latest_json_file.download_as_bytes())
+  IF CHECK: 'application_metadata' not in latest_json_file_data or 'user_metadata' not in latest_json_file_data
+    ACTION: ValueError('Missing application and/or user metadata')
+    IF CHECK: 'client-id' not in app_metadata or 'name' not in app_metadata or 'copilot-id' not in app_metadata
+      ACTION: ValueError('Missing client-id or name or copilot-id in applic...)
+    IF CHECK: 'email' not in user_metadata or 'user' not in user_metadata
+      ACTION: ValueError('Missing user and/or email in user metadata')
+  IF CHECK: 'embedding_metadata' not in latest_json_file_data
+    DATA_STRUCT: embedding_metadata = Keys['chunk_size', 'chunk_overlap', 'text_splitter']
+  IF CHECK: 'documents' not in latest_json_file_data or len(latest_json_file_data['documents']) == 0
+    ACTION: len(latest_json_file_data['documents'])
+    ACTION: ValueError('No documents found in the file')
+  ACTION: langchain_documents.append(Document(page_content=d['page_content'], metadata=...)
+  IF CHECK: embedding_metadata['text_splitter'] == 'token'
+    CONFIG: text_splitter = TokenTextSplitter(chunk_size=embedding_metadata['chunk_size'], chunk_overlap=embedding_metadata['chunk_overlap'], encoding_name='cl100k_base')
+    IF CHECK: embedding_metadata['text_splitter'] == 'recursive'
+      CONFIG: text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=embedding_metadata['chunk_size'], chunk_overlap=embedding_metadata['chunk_overlap'], encoding_name='cl100k_base')
+  ASSIGN: source_chunks = CALL text_splitter.split_documents(langchain_documents)
+  ASSIGN: r = CALL redis.Redis(host='10.64.0.12', port=6379)
+  ASSIGN: embedding_func = CALL get_default_embedding_func()
+  ASSIGN: tpuf_helpers = CALL TurbopufferHelpers()
+  ASSIGN: list_of_namespaces = CALL tpuf_helpers.get_namespaces()
+  IF CHECK: tpf_namepace in list_of_namespaces
+    ACTION: tpuf_helpers.delete_namespace()
+  CONFIG: (upload_success, error) = tpuf_helpers.from_documents(namespace=tpf_namepace, documents=chunk, embeddings_list=embeddings_list)
+  IF CHECK: upload_success
+    DATA_STRUCT: tpf_info = Keys['admin', 'email', 'embedding_model', 'read', 'user', 'write']
+    ACTION: db.collection('brain-turbopuffer-namespace-client-id').document(tpf_namepace).set(tpf_info)
+    ASSIGN: copilot_doc_ref = CALL db.collection('unicorn-ai-copilots').document(app_metadata['copilot-id'])
+    ASSIGN: copilot_doc = CALL copilot_doc_ref.get()
+    ASSIGN: copilot_doc_dict = CALL copilot_doc.to_dict()
+    ACTION: range(len(copilot_doc_dict['tools']))
+    IF CHECK: copilot_doc_dict['tools'][index]['name'] == 'VectorSearch'
+      CONSTANT: copilot_doc_dict['tools'][index]['additional_inputs']['VectorSearch_database'] = "turbopuffer"
+    IF CHECK: not has_vector_search
+      DATA_STRUCT: vector_search_config = Keys['additional_inputs', 'name']
+      ACTION: copilot_doc_dict['tools'].append(vector_search_config)
+    ACTION: db.collection('unicorn-ai-copilots').document(app_metadata['copilot-id']).set(copilot_doc_dict)
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: data = Keys['start_timestamp', 'end_timestamp', 'duration_in_seconds', 'job_type', 'num_embeddings', 'status', 'input_file', 'tpf_namespace']
+  ACTION: db.collection(firestore_collection).document(document_name).set(data)
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: data = Keys['start_timestamp', 'end_timestamp', 'duration_in_seconds', 'job_type', 'num_records', 'status', 'input_file', 'error']
+  ACTION: db.collection(firestore_collection).document(document_name).set(data)
+
+
+================================================================================
+END OF AST PARSING RESULTS
+================================================================================

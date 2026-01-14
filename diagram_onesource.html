@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Mermaid Diagram</title>
+</head>
+<body>
+    <div class="mermaid">
+
+flowchart TD
+    title(AIA OneSource Pipeline)
+    purpose["Purpose: Data ingestion and transformation pipeline for OneSource data"]
+
+    subgraph Ingestion
+        A["Source: GCS bucket<br/> Env: BUCKET_NAME<br/> Prefix: PREFIX"]
+    end
+
+    subgraph Transformation
+        B1[" File format: .csv<br/> Converts to: .json"]
+        B2[" Chunking Method: RecursiveCharacterTextSplitter<br/> Size: 2048, Overlap: 128"]
+        B3[" Transformations: Preprocess metadata<br/> Deduplication logic"]
+    end
+
+    subgraph Embedding
+        C1[" Model: text-embedding-ada-002<br/> API: OpenAI"]
+        C2[" Cache format: .pkl<br/> Filename: Config[PICKLE_FILE]<br/> Compressed embeddings"]
+    end
+
+    subgraph VectorDB_Storage
+        D1[" Service: Turbopuffer<br/> Namespace: tpuf_namespace_name_askos<br/> Alias: ALIAS_NAME"]
+        D2[" Metadata additional structure<br/> Supports document updates and deletions"]
+    end
+
+    subgraph Alerts_and_Logs
+        E1[" Firestore Collection<br/> Tracks status, errors, and progress"]
+        E2[" Alerts: Sends to webhook<br/> URL: ALERT_WEBHOOK_URL"]
+    end
+
+    title --> purpose
+    A --> B1
+    B1 --> B2
+    B2 --> B3
+    B3 --> C1
+    C1 --> C2
+    C2 --> D1
+    D1 --> D2
+    C2 --> E1
+    E1 --> E2
+
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true });
+    </script>
+</body>
+</html>
