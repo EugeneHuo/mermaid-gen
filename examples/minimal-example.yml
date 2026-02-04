@@ -1,0 +1,30 @@
+# Minimal example - just 3 steps to get started!
+# Copy this to .github/workflows/diagram.yml in your repository
+
+name: Generate Diagram
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  diagram:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - uses: EugeneHuo/mermaid-gen@main
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+      
+      - run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add diagram.html
+          git diff --staged --quiet || git commit -m "🤖 Update diagram"
+          git push

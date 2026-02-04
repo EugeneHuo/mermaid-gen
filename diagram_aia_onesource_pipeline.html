@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Mermaid Diagram</title>
+</head>
+<body>
+    <div class="mermaid">
+
+flowchart TD
+    subgraph Metadata
+        title["Pipeline Name: koodo_json_to_tpuf_np"]
+        purpose["Purpose: Process Koodo articles and upload embeddings to Turbopuffer"]
+        note["Owner: Not specified"]
+    end
+
+    subgraph Step1_Ingestion
+        A[" Source: https://www.koodomobile.com/static/help/api/articles<br/> Type: JSON articles"]
+        B[" Method: get_articles<br/> Config: koodo-api-articles-url"]
+    end
+
+    subgraph Step2_Chunking
+        C[" Method: RecursiveCharacterTextSplitter<br/> Size: 475 tokens, Overlap: 50<br/> Encoding: cl100k_base"]
+    end
+
+    subgraph Step3_Embedding
+        D[" Model: Config[EMBEDDING_MODEL_NAME]<br/> Service: OpenAI API<br/> Cache: Config[PICKLE_FILE]"]
+    end
+
+    subgraph Step4_Storage
+        E[" Service: Turbopuffer<br/> Namespace: Config[INDEX_NAME]<br/> Alias: Config[ALIAS_NAME]"]
+        F[(Firestore Database)]
+    end
+
+    subgraph Step5_Logging
+        G[" Log Table ID: Config[LOG_TABLE_ID]<br/> Alerts: Config[ALERT_WEBHOOK_URL]"]
+    end
+
+    Metadata --> A
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true });
+    </script>
+</body>
+</html>

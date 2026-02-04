@@ -1,0 +1,130 @@
+# Example workflow for using mermaid-gen as a GitHub Action
+# Copy this file to .github/workflows/diagram.yml in your target repository
+
+name: Generate Architecture Diagram
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '**.py'  # Only trigger on Python file changes
+  pull_request:
+    paths:
+      - '**.py'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  generate-diagram:
+    name: Generate/Update Mermaid Diagram
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to commit changes
+    
+    steps:
+      # Step 1: Checkout your repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Required for incremental mode (git diff)
+      
+      # Step 2: Generate or update diagram
+      - name: Generate Mermaid Diagram
+        id: diagram
+        uses: EugeneHuo/mermaid-gen@main  # Use the action
+        with:
+          # Required: OpenAI API key (add to repository secrets)
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          
+          # Optional: Mode selection (auto is recommended)
+          mode: auto  # auto, new, incremental, or full
+          
+          # Optional: Path to analyze (default is current directory)
+          path: .
+          
+          # Optional: Add metadata to enhance the diagram
+          pipeline-name: "My Data Pipeline"
+          pipeline-purpose: "Processes and transforms data"
+          data-type: "JSON files"
+          data-source: "API endpoints"
+          use-case: "Data analytics"
+          team-owner: "Data Team"
+          
+          # Optional: Enable debug mode for troubleshooting
+          debug: true
+          
+          # Optional: Include code comments in analysis
+          include-comments: false
+          
+          # Optional: Force full regeneration
+          force-full: false
+      
+      # Step 3: Display results
+      - name: Display Generation Results
+        run: |
+          echo "✅ Diagram generation completed!"
+          echo "Mode used: ${{ steps.diagram.outputs.mode-used }}"
+          echo "Diagram path: ${{ steps.diagram.outputs.diagram-path }}"
+          
+          if [ "${{ steps.diagram.outputs.mode-used }}" = "incremental" ]; then
+            echo "Affected nodes: ${{ steps.diagram.outputs.affected-nodes }}"
+            echo "Impact level: ${{ steps.diagram.outputs.impact-level }}"
+          fi
+      
+      # Step 4: Commit the updated diagram
+      - name: Commit Updated Diagram
+        if: github.event_name != 'pull_request'  # Don't commit on PRs
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Add generated files
+          git add diagram.html
+          git add diff_context.txt || true
+          git add incremental_update_debug.txt || true
+          
+          # Commit if there are changes
+          if ! git diff --staged --quiet; then
+            git commit -m "🤖 Auto-update diagram [${{ steps.diagram.outputs.mode-used }} mode]"
+            git push
+          else
+            echo "No changes to commit"
+          fi
+      
+      # Step 5: Upload artifacts for review
+      - name: Upload Diagram Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: mermaid-diagram-${{ github.sha }}
+          path: |
+            diagram.html
+            diff_context.txt
+            incremental_update_debug.txt
+          if-no-files-found: ignore
+          retention-days: 30
+      
+      # Step 6: Comment on PR (if this is a pull request)
+      - name: Comment on Pull Request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const mode = '${{ steps.diagram.outputs.mode-used }}';
+            const impact = '${{ steps.diagram.outputs.impact-level }}';
+            const affected = '${{ steps.diagram.outputs.affected-nodes }}';
+            
+            let body = '## 📊 Diagram Generation Results\n\n';
+            body += `- **Mode**: ${mode}\n`;
+            
+            if (mode === 'incremental') {
+              body += `- **Impact Level**: ${impact}\n`;
+              body += `- **Affected Nodes**: ${affected}\n`;
+            }
+            
+            body += '\n✅ Diagram has been generated/updated. Check the artifacts for the result.';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

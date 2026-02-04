@@ -1,0 +1,1015 @@
+================================================================================
+INTERMEDIATE AST PARSING RESULTS
+================================================================================
+
+Total context size: 60896 characters
+Source directory: C:\Users\T773534\Downloads\gen-ai-data-ingestion-1\gen-ai-data-ingestion\src\aia_habitat_pipeline
+
+================================================================================
+PARSED CONTENT (sent to LLM):
+================================================================================
+
+
+--- PIPELINE: habitat_embeddings_to_acs_tpf.py ---
+ASSIGN: absolute_path = CALL os.path.dirname(__file__)
+CONSTANT: relative_path = "../"
+CONFIG: full_path = os.path.realpath(os.path.join(absolute_path, relative_path))
+ACTION: sys.path.append(full_path)
+DATA_STRUCT: MYHR_ACS_CONFIG = Keys['m', 'efConstruction', 'efSearch', 'metric', 'title_field_name', 'prioritized_keywords_fields']
+IF CHECK: __name__ == '__main__'
+  ASSIGN: project_id = CALL os.getenv('PROJECT_ID')
+  CONFIG: bucket_name = os.getenv('HABITAT_BUCKET_NAME')
+  ASSIGN: api_env = CALL os.getenv('API_ENV')
+  CONFIG: alias_name = os.getenv('HABITAT_ALIAS_NAME')
+  CONFIG: existing_embeddings_pickle = os.getenv('HABITAT_EMBEDDINGS_PICKLE')
+  CONFIG: tbf_namespace_index_name = os.getenv('TPF_INDEX_NAME', 'habitat-latest')
+  ASSIGN: aia_client_id = CALL Config.fetch('aia-client-id')
+  ASSIGN: log_table_id = CALL os.getenv('LOG_TABLE_ID')
+  ASSIGN: webhook_url = CALL os.getenv('ALERT_WEBHOOK_URL')
+  ASSIGN: start_time = CALL time.time()
+  ASSIGN: start_time_string = CALL datetime.utcfromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S')
+  LOG_EVENT: "Index name: "
+  LOG_EVENT: "Alias name: "
+  ASSIGN: embedding_func = CALL get_default_embedding_func()
+  DATA_STRUCT: connection_args = Keys['service_endpoint', 'key']
+  CONFIG: embeddings_blob = get_latest_file(project_id, bucket_name, existing_embeddings_pickle)
+  ASSIGN: docs_embeddings = CALL embeddings_blob.download_as_string()
+  CONFIG: docs_embeddings = pickle.loads(docs_embeddings)
+  ACTION: len(docs)
+  ACTION: len(embeddings_list)
+  ASSIGN: tpuf_helpers = CALL TurbopufferHelpers()
+  ASSIGN: tpuf_namespaces = CALL tpuf_helpers.get_namespaces()
+  CONSTANT: embedding_model_name = "text-embedding-ada-002"
+  CONFIG: (tpuf_upload, err) = tpuf_helpers.from_documents(namespace=new_index_name, documents=docs, embeddings_list=embeddings_list, embedding_model=embedding_model_name)
+  IF CHECK: err
+    ACTION: Exception(f'Error uploading to turbopuffer: {err}')
+    CONFIG: create_alias = tpuf_helpers.create_alias(namespace=new_index_name, alias=alias_name)
+    IF CHECK: create_alias
+    CONFIG: update_alias = tpuf_helpers.update_alias(namespace=new_index_name, alias=alias_name)
+    IF CHECK: update_alias
+    ACTION: tpuf_helpers.delete_namespace(ns)
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  IF CHECK: api_env == 'pr'
+    ACTION: send_alert_to_chat(log_entry, webhook_url)
+
+--- PIPELINE: habitat_html_to_embeddings.py ---
+ACTION: nltk.download('punkt_tab')
+ACTION: nltk.download('averaged_perceptron_tagger_eng')
+ASSIGN: absolute_path = CALL os.path.dirname(__file__)
+CONSTANT: relative_path = "../"
+CONFIG: full_path = os.path.realpath(os.path.join(absolute_path, relative_path))
+ACTION: sys.path.append(full_path)
+DEF FUNCTION download_habitat_html_files:
+  CONFIG: latest_zip = get_latest_file_from_folder(project_id, bucket_name, file_prefix)
+  ASSIGN: file_path = CALL os.path.join(destination_folder, filename)
+  ACTION: latest_zip.download_to_filename(file_path)
+  LOG_EVENT: "Done!"
+DEF FUNCTION download_mappings_csv:
+  CONFIG: files = list_files(project_id, bucket_name, folder_prefix)
+  ACTION: os.makedirs(destination_folder)
+  ASSIGN: file_path = CALL os.path.join(destination_folder, filename)
+  CONFIG: blob = get_file(project_id, bucket_name, file)
+  ACTION: blob.download_to_filename(file_path)
+  LOG_EVENT: "Done!"
+DEF FUNCTION extract_local_zips:
+  ASSIGN: folder_name = CALL file_path.replace('.zip', '')
+  ACTION: os.makedirs(folder_name)
+  ACTION: shutil.unpack_archive(file_path, folder_name)
+DEF FUNCTION get_pages_dataframe:
+  ASSIGN: file_paths = CALL glob(f'{folder}/*listing*.csv')
+  CONFIG: df = pd.concat(map(lambda path: pd.read_csv(path, sep='\t'), file_paths), ignore_index=True)
+DEF FUNCTION get_groups_dataframe:
+  ASSIGN: files = CALL glob(folder + '/*.csv')
+  ASSIGN: files = CALL list(filter(lambda x: 'mapping' in x, files))
+  IF CHECK: files == []
+  ASSIGN: df = CALL pd.read_csv(file, skiprows=2)
+  ACTION: df.rename()
+  ACTION: dfs.append(df)
+  ASSIGN: df_group = CALL pd.concat(dfs)
+  ASSIGN: df_group = CALL df_group.rename(columns={'Team Member Groups': 'Groups'})
+  ASSIGN: df_group['Groups'] = CALL df_group['Groups'].fillna(', '.join(SELECTED_GROUPS))
+  DATA_STRUCT: values = Keys['Groups']
+  ASSIGN: df_group = CALL df_group.fillna(value=values)
+DEF FUNCTION extract_google_drive_links:
+  CONSTANT: re_pattern_drive = "https://drive\.google\.com/[^\s]+"
+  CONSTANT: re_pattern_docs = "https://docs\.google\.com/[^\s]+"
+  ASSIGN: soup = CALL BeautifulSoup(html_content, 'html.parser')
+  ASSIGN: links = CALL soup.find_all('a', href=True)
+  ACTION: list(set(gd_links))
+DEF FUNCTION extract_content_from_htmls:
+  ASSIGN: folder = CALL os.path.abspath(folder)
+  ASSIGN: output = CALL os.path.join(folder, 'output')
+  ACTION: os.makedirs(output)
+  ASSIGN: output = CALL os.path.join(output, 'habitat_docs.json')
+  ASSIGN: all_htmls = CALL glob(f'{folder}/*.html')
+  ASSIGN: html_file = CALL os.path.basename(html)
+  ACTION: open(html, 'r')
+  ASSIGN: html_content = CALL f.read()
+  ASSIGN: content = CALL extract_text_from_html(html_content)
+  ASSIGN: content = CALL re.sub('\\s*\\n(\\s*\\n)*', '\n\n', content)
+  ASSIGN: content = CALL content.strip()
+  ASSIGN: gd_links = CALL extract_google_drive_links(html_content)
+  IF CHECK: len(content) == 0
+    ACTION: len(content)
+  ACTION: docs.append({'metadata': {'page_id': page_id, 'language': lang...)
+  ACTION: open(output, 'w')
+  ACTION: json.dump(docs, f)
+DEF FUNCTION get_document_profile:
+DEF FUNCTION get_custom_loaders:
+DEF FUNCTION get_gdrive_metadata:
+  ASSIGN: storage_client = CALL storage.Client(project=project_name)
+  CONFIG: bucket = storage_client.bucket(bucket_name_gdrive)
+  CONFIG: metadata_paths = sorted([b.name for b in list(bucket.list_blobs(prefix=bucket_prefix_gdrive)) if fnmatch(b.name, f'{bucket_prefix_gdrive}/*/metadata/results.json')])
+  ACTION: enumerate(metadata_list)
+  CONFIG: sync_obj['blob'] = bucket.blob(f'{bucket_prefix_gdrive}/{version}/objects/{sync_obj['id']}')
+DEF FUNCTION consolidate_gdrive_metadata:
+  ASSIGN: consolidated_metadata_dict = CALL metadata_list[0].copy()
+  ACTION: range(1, len(metadata_list))
+  IF CHECK: obj['id'] in consolidated_synched_id_list
+  ACTION: consolidated_metadata_dict['synched'].append(obj)
+DEF FUNCTION filter_processed_docs:
+  IF CHECK: not existing_embeddings
+    LOG_EVENT: "Previous embeddings is None. Processing all Gdrive docs from scratch!"
+  CONFIG: existing_embeddings_ids = set([obj.metadata['page_id'] for obj in existing_embeddings['docs'] if obj.metadata['knowledge_base'] == 'gdrive'])
+  ACTION: zip(existing_embeddings['docs'], existing_embeddings['...)
+  IF CHECK: obj_docs.metadata['knowledge_base'] != 'gdrive' or obj_docs.metadata['page_id'] in gdrive_metadata_ids
+    ACTION: filtered_docs_list.append(obj_docs)
+    ACTION: filtered_embeds_list.append(obj_embeds)
+DEF FUNCTION get_gdrive_docs:
+  CONFIG: metadata_list = get_gdrive_metadata(project_name, bucket_name_gdrive, bucket_prefix_gdrive)
+  ASSIGN: gdrive_metadata = CALL consolidate_gdrive_metadata(metadata_list)
+  CONFIG: (gdrive_metadata_filtered, existing_embeddings) = filter_processed_docs(existing_embeddings, gdrive_metadata)
+  IF CHECK: gdrive_metadata_filtered['synched'] != []
+    CONFIG: gdrive_docs = extract_gdrive_docs(local_path, html_docs, gdrive_metadata_filtered['synched'])
+    LOG_EVENT: "No new files in gdrive data!"
+DEF FUNCTION extract_gdrive_content:
+  IF CHECK: data['content_type'] in ['image/png', 'image/jpeg']
+    CONFIG: loader = gdrive_loaders[data['content_type']](file_path, post_processors=[clean_extra_whitespace])
+    CONFIG: loader = gdrive_loaders[data['content_type']](file_path, strategy='fast', post_processors=[clean_extra_whitespace])
+  ASSIGN: result = CALL loader.load()
+DEF FUNCTION detect_language_gdrive:
+  ASSIGN: cleaned_name = CALL re.sub('[^a-zA-Z]', ' ', file_name)
+  IF CHECK: 'en' in words or 'eng' in words or 'english' in words
+    IF CHECK: 'fr' in words or 'french' in words
+  ASSIGN: sample_content = CALL ' '.join([word for word in page_content.replace('\n', ' ')....)
+  ASSIGN: result = CALL detector.detect_language_of(sample_content).iso_code_639_1.name.lower()
+DEF FUNCTION detect_tm_group_gdrive:
+  DATA_STRUCT: group_taxonomy_word_mappings = Keys['MGT', 'MP', 'Frontline', 'Retail', 'TRL', 'MNU', 'THSI', 'TI', 'ADT', 'SSA']
+  DATA_STRUCT: group_taxonomy_any_match_mappings = Keys['TWU', 'SQET', 'SAMT']
+  ASSIGN: cleaned_name = CALL re.sub('[^a-zA-Z]', ' ', file_name)
+  ACTION: g.lower()
+  ACTION: file_name.lower()
+  IF CHECK: len(groups) == 0
+    ACTION: len(groups)
+    IF CHECK: sum([1 for w in special_case_one if w.lower() in words]) == 2
+      ACTION: sum([1 for w in special_case_one if w.lower() in words...)
+      ACTION: groups.append('Health')
+    IF CHECK: sum([1 for w in special_case_two if w.lower() in words]) == 2
+      ACTION: sum([1 for w in special_case_two if w.lower() in words...)
+      ACTION: groups.extend(['TWU', 'SAMT', 'SQET'])
+  IF CHECK: file_name == '2025 App A and B Temp App C Term Guide EN.pdf'
+  IF CHECK: groups != []
+DEF FUNCTION get_tm_group_from_html:
+  IF CHECK: gdrive_id in link
+DEF FUNCTION extract_gdrive_docs:
+  ASSIGN: gdrive_loaders = CALL get_custom_loaders()
+  ASSIGN: detector = CALL LanguageDetectorBuilder.from_languages(*languages).build()
+  ASSIGN: temp = CALL get_document_profile()
+  IF CHECK: gdrive_obj['content_type'] not in gdrive_loaders
+  ACTION: gdrive_obj['blob'].download_to_filename(f'{local_path}/{gdrive_obj['id']}')
+  CONFIG: result = extract_gdrive_content(local_path, gdrive_loaders, gdrive_obj)
+  IF CHECK: result == [] or len(re.sub('[^a-zA-Z]', '', result[0].page_content)) == 0
+    ACTION: len(re.sub('[^a-zA-Z]', '', result[0].page_content))
+  ASSIGN: language = CALL detect_language_gdrive(detector=detector, file_name=gdrive_obj['name'], p...)
+  ASSIGN: assigned_group = CALL detect_tm_group_gdrive(file_name=gdrive_obj['name'])
+  IF CHECK: assigned_group != {}
+    ACTION: temp['metadata'].update(assigned_group)
+    ASSIGN: assigned_group = CALL get_tm_group_from_html(html_docs=html_docs, gdrive_id=gdrive_obj['id'])
+    IF CHECK: assigned_group != {}
+      ACTION: temp['metadata'].update(assigned_group)
+  CONSTANT: temp['metadata']['original_content'] = ""
+  CONSTANT: temp['metadata']['knowledge_base'] = "gdrive"
+  ASSIGN: temp['metadata']['extracted_date'] = CALL datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d')
+  ACTION: gdrive_docs.append(temp)
+DEF FUNCTION get_docs_as_json:
+  ASSIGN: df_pages = CALL get_pages_dataframe(html_folder)
+  ASSIGN: df_groups = CALL get_groups_dataframe(mappings_folder)
+  ASSIGN: contents = CALL extract_content_from_htmls(html_folder)
+  ASSIGN: extracted_date = CALL re.search('\\d{8}', html_folder).group(0)
+  CONFIG: knw_base = '_'.join(Path(html_folder).name.split('-')[:-1])
+  ASSIGN: df_pages['ID'] = CALL df_pages['ID'].astype(int)
+  ASSIGN: doc_id = CALL int(doc['metadata']['page_id'])
+  IF CHECK: metadata.empty
+    ACTION: Exception(f'No metadata found for page_id: {doc_id}')
+  IF CHECK: type(doc['metadata']['page_title']) is not str
+    ACTION: type(doc['metadata']['page_title'])
+    CONSTANT: doc['metadata']['page_title'] = ""
+  IF CHECK: 'Last Edit Time (UTC)' in metadata.columns
+    CONSTANT: doc['metadata']['last_edit_date'] = ""
+  IF CHECK: df_groups is not None
+    IF CHECK: not groups.empty
+      IF CHECK: group in groups
+  ACTION: json_docs.append(doc)
+  ACTION: failed_docs.append(doc_id)
+DEF FUNCTION get_content_with_page_title:
+  IF CHECK: 'page_title' in doc['metadata'] and len(doc['metadata']['page_title']) > 3
+    ACTION: len(doc['metadata']['page_title'])
+    ACTION: f'# {doc['metadata']['page_title']}\n{doc['page_content']}'.strip()
+  ACTION: doc['page_content'].strip()
+DEF FUNCTION embed_chunks:
+  ASSIGN: embeddings = CALL embedding_func.embed_query(doc.page_content)
+  ACTION: results.append({'doc': doc, 'embeddings': embeddings})
+DEF FUNCTION embed_docs:
+  IF CHECK: existing_embeds is not None
+    ASSIGN: new_docs = CALL filter_existing_documents(new_docs, existing_embeds['docs'])
+  CONFIG: text_splitter = TokenTextSplitter(chunk_size=500, chunk_overlap=50, encoding_name='cl100k_base')
+  ASSIGN: source_chunks = CALL text_splitter.split_documents(filtered_list_docs)
+  IF CHECK: len(source_chunks_filtered) == 0
+    ACTION: len(source_chunks_filtered)
+    LOG_EVENT: "No documents to embed"
+  IF CHECK: doc.page_content.startswith(f'# {doc.metadata['page_title']}')
+    ACTION: doc.page_content.startswith(f'# {doc.metadata['page_title']}')
+  ASSIGN: embedding_func = CALL get_default_embedding_func()
+  IF CHECK: num_threads > 1
+    ASSIGN: num_threads = CALL min(num_threads, len(source_chunks_filtered))
+    ACTION: concurrent.futures.ThreadPoolExecutor()
+    ACTION: concurrent.futures.wait(futures)
+    ACTION: concurrent.futures.as_completed(futures)
+    ASSIGN: (new_docs, embeddings) = CALL future.result()
+    ACTION: result_embeddings.extend(embeddings)
+    CONFIG: (new_docs, embeddings) = embed_chunks(source_chunks_filtered, embedding_func)
+    ACTION: result_embeddings.extend(embeddings)
+DEF FUNCTION filter_existing_documents:
+  ASSIGN: existing_doc = CALL next((d for d in existing_docs if d.metadata['page_id']...)
+  IF CHECK: existing_doc.metadata['original_content'] != doc.metadata['original_content']
+    ACTION: docs_to_keep.append(doc)
+DEF FUNCTION remove_deleted_pages:
+IF CHECK: __name__ == '__main__'
+  ASSIGN: start_time = CALL time.time()
+  ASSIGN: start_time_string = CALL datetime.utcfromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S')
+  CONSTANT: LOCAL_DEST_FOLDER = "data"
+  ASSIGN: project_id = CALL os.getenv('PROJECT_ID')
+  CONFIG: bucket_name_habitat = os.getenv('HABITAT_BUCKET_NAME')
+  CONFIG: bucket_name_gdrive = os.getenv('GDRIVE_BUCKET_NAME')
+  ASSIGN: json_docs_output = CALL os.getenv('HABITAT_JSON_DOCS_OUTPUT')
+  CONFIG: existing_embeddings_pickle = os.getenv('HABITAT_EMBEDDINGS_PICKLE')
+  ASSIGN: log_table_id = CALL os.getenv('LOG_TABLE_ID')
+  CONFIG: gdrive_files_path = os.getenv('GDRIVE_FILES_PATH')
+  ASSIGN: api_env = CALL os.getenv('API_ENV')
+  ASSIGN: html_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'html')
+  ASSIGN: csv_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'csv')
+  ASSIGN: gdrive_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'gdrive')
+  ASSIGN: webhook_url = CALL os.getenv('ALERT_WEBHOOK_URL')
+  ACTION: os.makedirs(html_folder)
+  ACTION: os.makedirs(csv_folder)
+  ACTION: os.makedirs(gdrive_folder)
+  LOG_EVENT: "
+"
+  ACTION: download_habitat_html_files(project_id, bucket_name_habitat, folder_prefix, ht...)
+  ACTION: download_mappings_csv(project_id, bucket_name_habitat, 'mappings', csv_f...)
+  ASSIGN: files = CALL glob(f'{html_folder}/*.zip')
+  ACTION: extract_local_zips(files)
+  DATA_STRUCT: folder_docs = Keys[]
+  ASSIGN: docs = CALL get_docs_as_json(folder, csv_folder)
+  ASSIGN: final_docs = CALL reduce(lambda x, y: x + y, folder_docs.values())
+  CONFIG: existing_embeddings_blob = get_latest_file(project_id, bucket_name_habitat, existing_embeddings_pickle)
+  IF CHECK: existing_embeddings_blob is None
+    ASSIGN: existing_embeddings = CALL existing_embeddings_blob.download_as_string()
+    CONFIG: existing_embeddings = pickle.loads(existing_embeddings)
+  LOG_EVENT: "INFO: Existing embeddings downloaded!"
+  CONFIG: (gdrive_docs, existing_embeddings) = get_gdrive_docs(project_name=project_id, bucket_name_gdrive=bucket_name_gdrive, bucket_prefix_gdrive=gdrive_files_path, existing_embeddings=existing_embeddings, local_path=gdrive_folder, html_docs=final_docs)
+  ACTION: final_docs.extend(gdrive_docs)
+  ACTION: shutil.rmtree(LOCAL_DEST_FOLDER)
+  IF CHECK: 'google_drive_links' in doc
+  ASSIGN: json_docs = CALL list(map(json.dumps, final_docs))
+  ACTION: upload_json_file(project_id, bucket_name_habitat, json_docs, json_d...)
+  IF CHECK: existing_embeddings is not None
+    ACTION: remove_deleted_pages(final_docs, existing_embeddings)
+  CONFIG: (_docs, results) = embed_docs(final_docs, existing_embeddings, num_threads=4)
+  ACTION: len(_docs)
+  ACTION: len(results)
+  LOG_EVENT: "Number of missing docs: "
+  ACTION: page_id_list.append(doc_i.metadata['page_id'])
+  ASSIGN: final_docs_df = CALL pd.DataFrame(metadata_list)
+  LOG_EVENT: "Number of missing_docs: "
+  CONFIG: (_missing_docs, missing_results) = embed_docs(missing_docs, existing_embeddings, num_threads=1)
+  ACTION: len(_missing_docs)
+  ACTION: len(missing_results)
+  ACTION: results.extend(missing_results)
+  ACTION: _docs.extend(_missing_docs)
+  ACTION: len(_docs)
+  ACTION: len(results)
+  IF CHECK: len(results) > 0
+    ACTION: len(results)
+    DATA_STRUCT: source_export = Keys['docs', 'embeddings']
+    IF CHECK: existing_embeddings is not None
+      ACTION: enumerate(existing_embeddings['docs'])
+      IF CHECK: e.metadata['page_id'] not in new_page_ids
+        ACTION: existing_docs_to_keep.append(e)
+        ACTION: existing_embeds_to_keep.append(existing_embeddings['embeddings'][i])
+      ACTION: source_export['docs'].extend(existing_docs_to_keep)
+      ACTION: source_export['embeddings'].extend(existing_embeds_to_keep)
+    ACTION: upload_pkl_file(project_id, bucket_name_habitat, source_export, ex...)
+    LOG_EVENT: "Embeddings uploaded to GCS"
+    ASSIGN: end_time = CALL time.time()
+    ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+    ASSIGN: time_taken = CALL int(end_time - start_time)
+    DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+    LOG_EVENT: "No embeddings to export"
+    ASSIGN: end_time = CALL time.time()
+    ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+    ASSIGN: time_taken = CALL int(end_time - start_time)
+    DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.utcfromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  IF CHECK: api_env == 'pr'
+    ACTION: send_alert_to_chat(log_entry, webhook_url)
+
+--- PIPELINE: np\habitat_html_to_tpf.py ---
+ACTION: nltk.download('punkt_tab')
+ACTION: nltk.download('averaged_perceptron_tagger_eng')
+ASSIGN: absolute_path = CALL os.path.dirname(__file__)
+CONSTANT: relative_path = "../../"
+CONFIG: full_path = os.path.realpath(os.path.join(absolute_path, relative_path))
+ACTION: sys.path.append(full_path)
+DEF FUNCTION get_html_files:
+  CONFIG: folders = list_folders(project_id, bucket_name_habitat)
+  ASSIGN: filtered_folders = CALL filter_folder_list(folders, EXEMPTION_PATTERNS)
+  ACTION: download_habitat_html_files(project_id, bucket_name_habitat, folder_prefix, ht...)
+  ACTION: download_mappings_csv(project_id, bucket_name_habitat, 'mappings', csv_f...)
+  ASSIGN: files = CALL glob(f'{html_folder}/*.zip')
+  ACTION: extract_local_zips(files)
+  DATA_STRUCT: folder_docs = Keys[]
+  ASSIGN: docs = CALL get_docs_as_json(folder, SELECTED_GROUPS, csv_folder)
+  ASSIGN: final_docs = CALL reduce(lambda x, y: x + y, folder_docs.values())
+DEF FUNCTION download_existing_embeddings_pickle:
+  CONFIG: existing_embeddings_blob = get_latest_file(project_id, bucket_name_habitat, existing_embeddings_pickle)
+  IF CHECK: existing_embeddings_blob is None
+    ASSIGN: existing_embeddings = CALL existing_embeddings_blob.download_as_string()
+    CONFIG: existing_embeddings = pickle.loads(existing_embeddings)
+IF CHECK: __name__ == '__main__'
+  ASSIGN: start_time = CALL time.time()
+  ASSIGN: start_time_string = CALL datetime.fromtimestamp(start_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: project_id = CALL os.getenv('PROJECT_ID')
+  CONFIG: bucket_name_habitat = os.getenv('HABITAT_BUCKET_NAME')
+  CONFIG: bucket_name_gdrive = os.getenv('GDRIVE_BUCKET_NAME')
+  CONFIG: alias_name = os.getenv('HABITAT_ALIAS_NAME')
+  CONFIG: index_name = os.getenv('HABITAT_INDEX_NAME')
+  CONFIG: existing_embeddings_pickle = os.getenv('HABITAT_EMBEDDINGS_PICKLE')
+  ASSIGN: log_table_id = CALL os.getenv('LOG_TABLE_ID')
+  CONFIG: gdrive_files_path = os.getenv('GDRIVE_FILES_PATH')
+  ASSIGN: api_env = CALL os.getenv('API_ENV')
+  CONFIG: embedding_model_name = os.getenv('EMBEDDING_MODEL_NAME')
+  ASSIGN: chat_webhook_url = CALL os.getenv('ALERT_WEBHOOK_URL')
+  ASSIGN: aia_client_id = CALL Config.fetch('aia-client-id')
+  ASSIGN: html_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'html')
+  ASSIGN: csv_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'csv')
+  ASSIGN: gdrive_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'gdrive')
+  ACTION: os.makedirs(html_folder)
+  ACTION: os.makedirs(csv_folder)
+  ACTION: os.makedirs(gdrive_folder)
+  CONFIG: html_docs = get_html_files(project_id, bucket_name_habitat, html_folder, csv_folder)
+  ASSIGN: files = CALL glob(f'{html_folder}/*.zip')
+  CONFIG: existing_embeddings = download_existing_embeddings_pickle(project_id, bucket_name_habitat, existing_embeddings_pickle)
+  IF CHECK: existing_embeddings is None
+    LOG_EVENT: "No existing embeddings found, starting fresh."
+    LOG_EVENT: "INFO: Existing embeddings downloaded!"
+  CONFIG: (gdrive_docs, existing_embeddings) = get_gdrive_docs(project_name=project_id, bucket_name_gdrive=bucket_name_gdrive, bucket_prefix_gdrive=gdrive_files_path, existing_embeddings=existing_embeddings, local_path=gdrive_folder, html_docs=html_docs, selected_groups=SELECTED_GROUPS)
+  ACTION: shutil.rmtree(LOCAL_DEST_FOLDER)
+  IF CHECK: 'google_drive_links' in doc
+  IF CHECK: existing_embeddings is not None
+    ACTION: remove_deleted_pages(final_docs, existing_embeddings)
+  CONFIG: (_docs, results) = embed_docs(final_docs, embedding_model_name, existing_embeddings, num_threads=4)
+  ACTION: len(_docs)
+  ACTION: len(results)
+  LOG_EVENT: "Number of missing docs after first pass: "
+  ACTION: page_id_list.append(doc_i.metadata['page_id'])
+  IF CHECK: len(missing_docs) > 0
+    ACTION: len(missing_docs)
+    CONFIG: (_missing_docs, missing_results) = embed_docs(missing_docs, embedding_model_name, existing_embeddings, num_threads=1)
+    ACTION: len(_missing_docs)
+    ACTION: len(missing_results)
+    LOG_EVENT: "It was not possible to embed all missing documents!"
+    ACTION: results.extend(missing_results)
+    ACTION: _docs.extend(_missing_docs)
+    LOG_EVENT: "No missing documents left to embed in second pass."
+  ACTION: len(_docs)
+  ACTION: len(results)
+  IF CHECK: len(results) > 0
+    ACTION: len(results)
+    DATA_STRUCT: docs_embeddings = Keys['docs', 'embeddings']
+    IF CHECK: existing_embeddings is not None
+      ACTION: enumerate(existing_embeddings['docs'])
+      IF CHECK: create_error.metadata['page_id'] not in new_page_ids
+        ACTION: existing_docs_to_keep.append(create_error)
+        ACTION: existing_embeds_to_keep.append(existing_embeddings['embeddings'][i])
+      ACTION: docs_embeddings['docs'].extend(existing_docs_to_keep)
+      ACTION: docs_embeddings['embeddings'].extend(existing_embeds_to_keep)
+    ACTION: upload_pkl_file(project_id, bucket_name_habitat, docs_embeddings, ...)
+    LOG_EVENT: "Embeddings uploaded to GCS"
+    ACTION: len(docs)
+    ACTION: len(embeddings_list)
+    ASSIGN: tpuf_helpers = CALL TurbopufferHelpers()
+    ASSIGN: tpuf_namespaces = CALL tpuf_helpers.get_namespaces()
+    CONFIG: (tpuf_upload, err) = tpuf_helpers.from_documents(namespace=new_index_name, documents=docs, embeddings_list=embeddings_list, embedding_model=embedding_model_name)
+    IF CHECK: err
+      ACTION: Exception(f'Error uploading to turbopuffer: {err}')
+      CONFIG: create_alias = tpuf_helpers.create_alias(namespace=new_index_name, alias=alias_name)
+      IF CHECK: create_alias
+        LOG_EVENT: "Failed to create alias, will try updating instead"
+      IF CHECK: not alias_success
+        CONFIG: update_alias = tpuf_helpers.update_alias(namespace=new_index_name, alias=alias_name)
+        IF CHECK: update_alias
+          LOG_EVENT: "Failed to update alias"
+      IF CHECK: not alias_success
+        ACTION: ValueError('Both create and update alias operations failed')
+      ACTION: tpuf_helpers.delete_namespace(ns)
+      ASSIGN: end_time = CALL time.time()
+      ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+      ASSIGN: time_taken = CALL int(end_time - start_time)
+      DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+    LOG_EVENT: "No embeddings to export"
+    ASSIGN: end_time = CALL time.time()
+    ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    ASSIGN: time_taken = CALL int(end_time - start_time)
+    DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+
+--- PIPELINE: np\habitat_html_to_tpf_cohere.py ---
+ACTION: nltk.download('punkt_tab')
+ACTION: nltk.download('averaged_perceptron_tagger_eng')
+ASSIGN: absolute_path = CALL os.path.dirname(__file__)
+CONSTANT: relative_path = "../../"
+CONFIG: full_path = os.path.realpath(os.path.join(absolute_path, relative_path))
+ACTION: sys.path.append(full_path)
+DEF FUNCTION get_html_files:
+  CONFIG: folders = list_folders(project_id, bucket_name_habitat)
+  ASSIGN: filtered_folders = CALL filter_folder_list(folders, EXEMPTION_PATTERNS)
+  ACTION: download_habitat_html_files(project_id, bucket_name_habitat, folder_prefix, ht...)
+  ACTION: download_mappings_csv(project_id, bucket_name_habitat, 'mappings', csv_f...)
+  ASSIGN: files = CALL glob(f'{html_folder}/*.zip')
+  ACTION: extract_local_zips(files)
+  DATA_STRUCT: folder_docs = Keys[]
+  ASSIGN: docs = CALL get_docs_as_json(folder, SELECTED_GROUPS, csv_folder)
+  ASSIGN: final_docs = CALL reduce(lambda x, y: x + y, folder_docs.values())
+DEF FUNCTION download_existing_embeddings_pickle:
+  CONFIG: existing_embeddings_blob = get_latest_file(project_id, bucket_name_habitat, existing_embeddings_pickle)
+  IF CHECK: existing_embeddings_blob is None
+    ASSIGN: existing_embeddings = CALL existing_embeddings_blob.download_as_string()
+    CONFIG: existing_embeddings = pickle.loads(existing_embeddings)
+IF CHECK: __name__ == '__main__'
+  ASSIGN: start_time = CALL time.time()
+  ASSIGN: start_time_string = CALL datetime.fromtimestamp(start_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+  CONSTANT: SOURCE = "cohere"
+  ASSIGN: project_id = CALL os.getenv('PROJECT_ID')
+  CONFIG: bucket_name_habitat = os.getenv('HABITAT_BUCKET_NAME')
+  CONFIG: bucket_name_gdrive = os.getenv('GDRIVE_BUCKET_NAME')
+  CONFIG: alias_name = os.getenv('HABITAT_ALIAS_NAME')
+  CONFIG: index_name = os.getenv('HABITAT_INDEX_NAME')
+  CONFIG: existing_embeddings_pickle = os.getenv('HABITAT_EMBEDDINGS_PICKLE')
+  ASSIGN: log_table_id = CALL os.getenv('LOG_TABLE_ID')
+  CONFIG: gdrive_files_path = os.getenv('GDRIVE_FILES_PATH')
+  ASSIGN: api_env = CALL os.getenv('API_ENV')
+  CONFIG: embedding_model_name = os.getenv('EMBEDDING_MODEL_NAME')
+  ASSIGN: chat_webhook_url = CALL os.getenv('ALERT_WEBHOOK_URL')
+  ASSIGN: aia_client_id = CALL Config.fetch('aia-client-id')
+  ASSIGN: html_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'html')
+  ASSIGN: csv_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'csv')
+  ASSIGN: gdrive_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'gdrive')
+  ACTION: os.makedirs(html_folder)
+  ACTION: os.makedirs(csv_folder)
+  ACTION: os.makedirs(gdrive_folder)
+  CONFIG: html_docs = get_html_files(project_id, bucket_name_habitat, html_folder, csv_folder)
+  ASSIGN: files = CALL glob(f'{html_folder}/*.zip')
+  CONFIG: existing_embeddings = download_existing_embeddings_pickle(project_id, bucket_name_habitat, existing_embeddings_pickle)
+  IF CHECK: existing_embeddings is None
+    LOG_EVENT: "No existing embeddings found, starting fresh."
+    LOG_EVENT: "INFO: Existing embeddings downloaded!"
+  CONFIG: (gdrive_docs, existing_embeddings) = get_gdrive_docs(project_name=project_id, bucket_name_gdrive=bucket_name_gdrive, bucket_prefix_gdrive=gdrive_files_path, existing_embeddings=existing_embeddings, local_path=gdrive_folder, html_docs=html_docs, selected_groups=SELECTED_GROUPS)
+  ACTION: shutil.rmtree(LOCAL_DEST_FOLDER)
+  IF CHECK: 'google_drive_links' in doc
+  IF CHECK: existing_embeddings is not None
+    ACTION: remove_deleted_pages(final_docs, existing_embeddings)
+  CONFIG: (_docs, results) = embed_docs(final_docs, embedding_model_name, existing_embeddings, num_threads=4, source=SOURCE)
+  ACTION: len(_docs)
+  ACTION: len(results)
+  LOG_EVENT: "Number of missing docs after first pass: "
+  ACTION: page_id_list.append(doc_i.metadata['page_id'])
+  IF CHECK: len(missing_docs) > 0
+    ACTION: len(missing_docs)
+    CONFIG: (_missing_docs, missing_results) = embed_docs(missing_docs, embedding_model_name, existing_embeddings, num_threads=1, source=SOURCE)
+    ACTION: len(_missing_docs)
+    ACTION: len(missing_results)
+    LOG_EVENT: "It was not possible to embed all missing documents!"
+    ACTION: results.extend(missing_results)
+    ACTION: _docs.extend(_missing_docs)
+    LOG_EVENT: "No missing documents left to embed in second pass."
+  ACTION: len(_docs)
+  ACTION: len(results)
+  IF CHECK: len(results) > 0
+    ACTION: len(results)
+    DATA_STRUCT: docs_embeddings = Keys['docs', 'embeddings']
+    IF CHECK: existing_embeddings is not None
+      ACTION: enumerate(existing_embeddings['docs'])
+      IF CHECK: create_error.metadata['page_id'] not in new_page_ids
+        ACTION: existing_docs_to_keep.append(create_error)
+        ACTION: existing_embeds_to_keep.append(existing_embeddings['embeddings'][i])
+      ACTION: docs_embeddings['docs'].extend(existing_docs_to_keep)
+      ACTION: docs_embeddings['embeddings'].extend(existing_embeds_to_keep)
+    ACTION: upload_pkl_file(project_id, bucket_name_habitat, docs_embeddings, ...)
+    LOG_EVENT: "Embeddings uploaded to GCS"
+    ACTION: len(docs)
+    ACTION: len(embeddings_list)
+    ASSIGN: tpuf_helpers = CALL TurbopufferHelpers()
+    ASSIGN: tpuf_namespaces = CALL tpuf_helpers.get_namespaces()
+    CONFIG: (tpuf_upload, err) = tpuf_helpers.from_documents(namespace=new_index_name, documents=docs, embeddings_list=embeddings_list, embedding_model=embedding_model_name)
+    IF CHECK: err
+      ACTION: Exception(f'Error uploading to turbopuffer: {err}')
+      CONFIG: create_alias = tpuf_helpers.create_alias(namespace=new_index_name, alias=alias_name)
+      IF CHECK: create_alias
+        LOG_EVENT: "Failed to create alias, will try updating instead"
+      IF CHECK: not alias_success
+        CONFIG: update_alias = tpuf_helpers.update_alias(namespace=new_index_name, alias=alias_name)
+        IF CHECK: update_alias
+          LOG_EVENT: "Failed to update alias"
+      IF CHECK: not alias_success
+        ACTION: ValueError('Both create and update alias operations failed')
+      ACTION: tpuf_helpers.delete_namespace(ns)
+      ASSIGN: end_time = CALL time.time()
+      ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+      ASSIGN: time_taken = CALL int(end_time - start_time)
+      DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+    LOG_EVENT: "No embeddings to export"
+    ASSIGN: end_time = CALL time.time()
+    ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    ASSIGN: time_taken = CALL int(end_time - start_time)
+    DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+
+--- PIPELINE: np\habitat_html_to_tpf_gemini.py ---
+ACTION: nltk.download('punkt_tab')
+ACTION: nltk.download('averaged_perceptron_tagger_eng')
+ASSIGN: absolute_path = CALL os.path.dirname(__file__)
+CONSTANT: relative_path = "../../"
+CONFIG: full_path = os.path.realpath(os.path.join(absolute_path, relative_path))
+ACTION: sys.path.append(full_path)
+DEF FUNCTION get_html_files:
+  CONFIG: folders = list_folders(project_id, bucket_name_habitat)
+  ASSIGN: filtered_folders = CALL filter_folder_list(folders, EXEMPTION_PATTERNS)
+  ACTION: download_habitat_html_files(project_id, bucket_name_habitat, folder_prefix, ht...)
+  ACTION: download_mappings_csv(project_id, bucket_name_habitat, 'mappings', csv_f...)
+  ASSIGN: files = CALL glob(f'{html_folder}/*.zip')
+  ACTION: extract_local_zips(files)
+  DATA_STRUCT: folder_docs = Keys[]
+  ASSIGN: docs = CALL get_docs_as_json(folder, SELECTED_GROUPS, csv_folder)
+  ASSIGN: final_docs = CALL reduce(lambda x, y: x + y, folder_docs.values())
+DEF FUNCTION download_existing_embeddings_pickle:
+  CONFIG: existing_embeddings_blob = get_latest_file(project_id, bucket_name_habitat, existing_embeddings_pickle)
+  IF CHECK: existing_embeddings_blob is None
+    ASSIGN: existing_embeddings = CALL existing_embeddings_blob.download_as_string()
+    CONFIG: existing_embeddings = pickle.loads(existing_embeddings)
+IF CHECK: __name__ == '__main__'
+  ASSIGN: start_time = CALL time.time()
+  ASSIGN: start_time_string = CALL datetime.fromtimestamp(start_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+  CONSTANT: SOURCE = "gemini"
+  ASSIGN: project_id = CALL os.getenv('PROJECT_ID')
+  CONFIG: bucket_name_habitat = os.getenv('HABITAT_BUCKET_NAME')
+  CONFIG: bucket_name_gdrive = os.getenv('GDRIVE_BUCKET_NAME')
+  CONFIG: alias_name = os.getenv('HABITAT_ALIAS_NAME')
+  CONFIG: index_name = os.getenv('HABITAT_INDEX_NAME')
+  CONFIG: existing_embeddings_pickle = os.getenv('HABITAT_EMBEDDINGS_PICKLE')
+  ASSIGN: log_table_id = CALL os.getenv('LOG_TABLE_ID')
+  CONFIG: gdrive_files_path = os.getenv('GDRIVE_FILES_PATH')
+  ASSIGN: api_env = CALL os.getenv('API_ENV')
+  CONFIG: embedding_model_name = os.getenv('EMBEDDING_MODEL_NAME')
+  ASSIGN: chat_webhook_url = CALL os.getenv('ALERT_WEBHOOK_URL')
+  ASSIGN: aia_client_id = CALL Config.fetch('aia-client-id')
+  ASSIGN: html_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'html')
+  ASSIGN: csv_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'csv')
+  ASSIGN: gdrive_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'gdrive')
+  ACTION: os.makedirs(html_folder)
+  ACTION: os.makedirs(csv_folder)
+  ACTION: os.makedirs(gdrive_folder)
+  CONFIG: html_docs = get_html_files(project_id, bucket_name_habitat, html_folder, csv_folder)
+  ASSIGN: files = CALL glob(f'{html_folder}/*.zip')
+  CONFIG: existing_embeddings = download_existing_embeddings_pickle(project_id, bucket_name_habitat, existing_embeddings_pickle)
+  IF CHECK: existing_embeddings is None
+    LOG_EVENT: "No existing embeddings found, starting fresh."
+    LOG_EVENT: "INFO: Existing embeddings downloaded!"
+  CONFIG: (gdrive_docs, existing_embeddings) = get_gdrive_docs(project_name=project_id, bucket_name_gdrive=bucket_name_gdrive, bucket_prefix_gdrive=gdrive_files_path, existing_embeddings=existing_embeddings, local_path=gdrive_folder, html_docs=html_docs, selected_groups=SELECTED_GROUPS)
+  ACTION: shutil.rmtree(LOCAL_DEST_FOLDER)
+  IF CHECK: 'google_drive_links' in doc
+  IF CHECK: existing_embeddings is not None
+    ACTION: remove_deleted_pages(final_docs, existing_embeddings)
+  CONFIG: (_docs, results) = embed_docs(final_docs, embedding_model_name, existing_embeddings, num_threads=4, source=SOURCE)
+  ACTION: len(_docs)
+  ACTION: len(results)
+  LOG_EVENT: "Number of missing docs after first pass: "
+  ACTION: page_id_list.append(doc_i.metadata['page_id'])
+  IF CHECK: len(missing_docs) > 0
+    ACTION: len(missing_docs)
+    CONFIG: (_missing_docs, missing_results) = embed_docs(missing_docs, embedding_model_name, existing_embeddings, num_threads=1, source=SOURCE)
+    ACTION: len(_missing_docs)
+    ACTION: len(missing_results)
+    LOG_EVENT: "It was not possible to embed all missing documents!"
+    ACTION: results.extend(missing_results)
+    ACTION: _docs.extend(_missing_docs)
+    LOG_EVENT: "No missing documents left to embed in second pass."
+  ACTION: len(_docs)
+  ACTION: len(results)
+  IF CHECK: len(results) > 0
+    ACTION: len(results)
+    DATA_STRUCT: docs_embeddings = Keys['docs', 'embeddings']
+    IF CHECK: existing_embeddings is not None
+      ACTION: enumerate(existing_embeddings['docs'])
+      IF CHECK: create_error.metadata['page_id'] not in new_page_ids
+        ACTION: existing_docs_to_keep.append(create_error)
+        ACTION: existing_embeds_to_keep.append(existing_embeddings['embeddings'][i])
+      ACTION: docs_embeddings['docs'].extend(existing_docs_to_keep)
+      ACTION: docs_embeddings['embeddings'].extend(existing_embeds_to_keep)
+    ACTION: upload_pkl_file(project_id, bucket_name_habitat, docs_embeddings, ...)
+    LOG_EVENT: "Embeddings uploaded to GCS"
+    ACTION: len(docs)
+    ACTION: len(embeddings_list)
+    ASSIGN: tpuf_helpers = CALL TurbopufferHelpers()
+    ASSIGN: tpuf_namespaces = CALL tpuf_helpers.get_namespaces()
+    CONFIG: (tpuf_upload, err) = tpuf_helpers.from_documents(namespace=new_index_name, documents=docs, embeddings_list=embeddings_list, embedding_model=embedding_model_name)
+    IF CHECK: err
+      ACTION: Exception(f'Error uploading to turbopuffer: {err}')
+      CONFIG: create_alias = tpuf_helpers.create_alias(namespace=new_index_name, alias=alias_name)
+      IF CHECK: create_alias
+        LOG_EVENT: "Failed to create alias, will try updating instead"
+      IF CHECK: not alias_success
+        CONFIG: update_alias = tpuf_helpers.update_alias(namespace=new_index_name, alias=alias_name)
+        IF CHECK: update_alias
+          LOG_EVENT: "Failed to update alias"
+      IF CHECK: not alias_success
+        ACTION: ValueError('Both create and update alias operations failed')
+      ACTION: tpuf_helpers.delete_namespace(ns)
+      ASSIGN: end_time = CALL time.time()
+      ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+      ASSIGN: time_taken = CALL int(end_time - start_time)
+      DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+    LOG_EVENT: "No embeddings to export"
+    ASSIGN: end_time = CALL time.time()
+    ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    ASSIGN: time_taken = CALL int(end_time - start_time)
+    DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+
+--- PIPELINE: pr\habitat_html_to_tpf.py ---
+ACTION: nltk.download('punkt_tab')
+ACTION: nltk.download('averaged_perceptron_tagger_eng')
+ASSIGN: absolute_path = CALL os.path.dirname(__file__)
+CONSTANT: relative_path = "../../"
+CONFIG: full_path = os.path.realpath(os.path.join(absolute_path, relative_path))
+ACTION: sys.path.append(full_path)
+DEF FUNCTION get_html_files:
+  CONFIG: folders = list_folders(project_id, bucket_name_habitat)
+  ASSIGN: filtered_folders = CALL filter_folder_list(folders, EXEMPTION_PATTERNS)
+  ACTION: download_habitat_html_files(project_id, bucket_name_habitat, folder_prefix, ht...)
+  ACTION: download_mappings_csv(project_id, bucket_name_habitat, 'mappings', csv_f...)
+  ASSIGN: files = CALL glob(f'{html_folder}/*.zip')
+  ACTION: extract_local_zips(files)
+  DATA_STRUCT: folder_docs = Keys[]
+  ASSIGN: docs = CALL get_docs_as_json(folder, SELECTED_GROUPS, csv_folder)
+  ASSIGN: final_docs = CALL reduce(lambda x, y: x + y, folder_docs.values())
+DEF FUNCTION download_existing_embeddings_pickle:
+  CONFIG: existing_embeddings_blob = get_latest_file(project_id, bucket_name_habitat, existing_embeddings_pickle)
+  IF CHECK: existing_embeddings_blob is None
+    ASSIGN: existing_embeddings = CALL existing_embeddings_blob.download_as_string()
+    CONFIG: existing_embeddings = pickle.loads(existing_embeddings)
+IF CHECK: __name__ == '__main__'
+  ASSIGN: start_time = CALL time.time()
+  ASSIGN: start_time_string = CALL datetime.fromtimestamp(start_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: project_id = CALL os.getenv('PROJECT_ID')
+  CONFIG: bucket_name_habitat = os.getenv('HABITAT_BUCKET_NAME')
+  CONFIG: bucket_name_gdrive = os.getenv('GDRIVE_BUCKET_NAME')
+  CONFIG: alias_name = os.getenv('HABITAT_ALIAS_NAME')
+  CONFIG: index_name = os.getenv('HABITAT_INDEX_NAME')
+  CONFIG: existing_embeddings_pickle = os.getenv('HABITAT_EMBEDDINGS_PICKLE')
+  ASSIGN: log_table_id = CALL os.getenv('LOG_TABLE_ID')
+  CONFIG: gdrive_files_path = os.getenv('GDRIVE_FILES_PATH')
+  ASSIGN: api_env = CALL os.getenv('API_ENV')
+  CONFIG: embedding_model_name = os.getenv('EMBEDDING_MODEL_NAME')
+  ASSIGN: chat_webhook_url = CALL os.getenv('ALERT_WEBHOOK_URL')
+  ASSIGN: aia_client_id = CALL Config.fetch('aia-client-id')
+  ASSIGN: html_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'html')
+  ASSIGN: csv_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'csv')
+  ASSIGN: gdrive_folder = CALL os.path.join(LOCAL_DEST_FOLDER, 'gdrive')
+  ACTION: os.makedirs(html_folder)
+  ACTION: os.makedirs(csv_folder)
+  ACTION: os.makedirs(gdrive_folder)
+  CONFIG: html_docs = get_html_files(project_id, bucket_name_habitat, html_folder, csv_folder)
+  ASSIGN: files = CALL glob(f'{html_folder}/*.zip')
+  CONFIG: existing_embeddings = download_existing_embeddings_pickle(project_id, bucket_name_habitat, existing_embeddings_pickle)
+  IF CHECK: existing_embeddings is None
+    LOG_EVENT: "No existing embeddings found, starting fresh."
+    LOG_EVENT: "INFO: Existing embeddings downloaded!"
+  CONFIG: (gdrive_docs, existing_embeddings) = get_gdrive_docs(project_name=project_id, bucket_name_gdrive=bucket_name_gdrive, bucket_prefix_gdrive=gdrive_files_path, existing_embeddings=existing_embeddings, local_path=gdrive_folder, html_docs=html_docs, selected_groups=SELECTED_GROUPS)
+  ACTION: shutil.rmtree(LOCAL_DEST_FOLDER)
+  IF CHECK: 'google_drive_links' in doc
+  IF CHECK: existing_embeddings is not None
+    ACTION: remove_deleted_pages(final_docs, existing_embeddings)
+  CONFIG: (_docs, results) = embed_docs(final_docs, embedding_model_name, existing_embeddings, num_threads=4)
+  ACTION: len(_docs)
+  ACTION: len(results)
+  LOG_EVENT: "Number of missing docs after first pass: "
+  ACTION: page_id_list.append(doc_i.metadata['page_id'])
+  IF CHECK: len(missing_docs) > 0
+    ACTION: len(missing_docs)
+    CONFIG: (_missing_docs, missing_results) = embed_docs(missing_docs, embedding_model_name, existing_embeddings, num_threads=1)
+    ACTION: len(_missing_docs)
+    ACTION: len(missing_results)
+    LOG_EVENT: "It was not possible to embed all missing documents!"
+    ACTION: results.extend(missing_results)
+    ACTION: _docs.extend(_missing_docs)
+    LOG_EVENT: "No missing documents left to embed in second pass."
+  ACTION: len(_docs)
+  ACTION: len(results)
+  IF CHECK: len(results) > 0
+    ACTION: len(results)
+    DATA_STRUCT: docs_embeddings = Keys['docs', 'embeddings']
+    IF CHECK: existing_embeddings is not None
+      ACTION: enumerate(existing_embeddings['docs'])
+      IF CHECK: create_error.metadata['page_id'] not in new_page_ids
+        ACTION: existing_docs_to_keep.append(create_error)
+        ACTION: existing_embeds_to_keep.append(existing_embeddings['embeddings'][i])
+      ACTION: docs_embeddings['docs'].extend(existing_docs_to_keep)
+      ACTION: docs_embeddings['embeddings'].extend(existing_embeds_to_keep)
+    ACTION: upload_pkl_file(project_id, bucket_name_habitat, docs_embeddings, ...)
+    LOG_EVENT: "Embeddings uploaded to GCS"
+    ACTION: len(docs)
+    ACTION: len(embeddings_list)
+    ASSIGN: tpuf_helpers = CALL TurbopufferHelpers()
+    ASSIGN: tpuf_namespaces = CALL tpuf_helpers.get_namespaces()
+    CONFIG: (tpuf_upload, err) = tpuf_helpers.from_documents(namespace=new_index_name, documents=docs, embeddings_list=embeddings_list, embedding_model=embedding_model_name)
+    IF CHECK: err
+      ACTION: Exception(f'Error uploading to turbopuffer: {err}')
+      CONFIG: create_alias = tpuf_helpers.create_alias(namespace=new_index_name, alias=alias_name)
+      IF CHECK: create_alias
+        LOG_EVENT: "Failed to create alias, will try updating instead"
+      IF CHECK: not alias_success
+        CONFIG: update_alias = tpuf_helpers.update_alias(namespace=new_index_name, alias=alias_name)
+        IF CHECK: update_alias
+          LOG_EVENT: "Failed to update alias"
+      IF CHECK: not alias_success
+        ACTION: ValueError('Both create and update alias operations failed')
+      ACTION: tpuf_helpers.delete_namespace(ns)
+      ASSIGN: end_time = CALL time.time()
+      ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+      ASSIGN: time_taken = CALL int(end_time - start_time)
+      DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+    LOG_EVENT: "No embeddings to export"
+    ASSIGN: end_time = CALL time.time()
+    ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    ASSIGN: time_taken = CALL int(end_time - start_time)
+    DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+    ACTION: send_alert_to_chat(log_entry, chat_webhook_url)
+  ASSIGN: end_time = CALL time.time()
+  ASSIGN: end_time_string = CALL datetime.fromtimestamp(end_time, timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+  ASSIGN: time_taken = CALL int(end_time - start_time)
+  DATA_STRUCT: log_entry = Keys['application_name', 'job_name', 'start_timestamp', 'end_timestamp', 'duration_in_seconds', 'num_embeddings', 'input_file', 'output', 'status', 'error']
+  IF CHECK: check_persistent_no_document_error(project_id, log_table_id, days_threshold=3)
+    ACTION: check_persistent_no_document_error(project_id, log_table_id)
+    ACTION: send_alert_to_chat(log_entry, chat_webhook_url)
+
+--- PIPELINE: utils\habitat_utils.py ---
+CONSTANT: LOCAL_DEST_FOLDER = "data"
+DEF FUNCTION filter_folder_list:
+  IF CHECK: not any((pattern in folder for pattern in patterns))
+    ACTION: any((pattern in folder for pattern in patterns))
+    ACTION: filtered_folders.append(folder)
+DEF FUNCTION download_habitat_html_files:
+  CONFIG: latest_zip = get_latest_file_from_folder(project_id, bucket_name, file_prefix)
+  ASSIGN: file_path = CALL os.path.join(destination_folder, filename)
+  ACTION: latest_zip.download_to_filename(file_path)
+  LOG_EVENT: "Done!"
+DEF FUNCTION download_mappings_csv:
+  CONFIG: files = list_files(project_id, bucket_name, folder_prefix)
+  ACTION: os.makedirs(destination_folder)
+  ASSIGN: file_path = CALL os.path.join(destination_folder, filename)
+  CONFIG: blob = get_file(project_id, bucket_name, file)
+  ACTION: blob.download_to_filename(file_path)
+  LOG_EVENT: "Done!"
+DEF FUNCTION extract_local_zips:
+  ASSIGN: folder_name = CALL file_path.replace('.zip', '')
+  ACTION: os.makedirs(folder_name)
+  ACTION: shutil.unpack_archive(file_path, folder_name)
+DEF FUNCTION get_pages_dataframe:
+  ASSIGN: file_paths = CALL glob(f'{folder}/*listing*.csv')
+  CONFIG: df = pd.concat(map(lambda path: pd.read_csv(path, sep='\t'), file_paths), ignore_index=True)
+DEF FUNCTION get_groups_dataframe:
+  ASSIGN: files = CALL glob(folder + '/*.csv')
+  ASSIGN: files = CALL list(filter(lambda x: 'mapping' in x, files))
+  IF CHECK: files == []
+  ASSIGN: df = CALL pd.read_csv(file, skiprows=2)
+  ACTION: df.rename()
+  ACTION: dfs.append(df)
+  ASSIGN: df_group = CALL pd.concat(dfs)
+  ASSIGN: df_group = CALL df_group.rename(columns={'Team Member Groups': 'Groups'})
+  ASSIGN: df_group['Groups'] = CALL df_group['Groups'].fillna(', '.join(selected_groups))
+  DATA_STRUCT: values = Keys['Groups']
+  ASSIGN: df_group = CALL df_group.fillna(value=values)
+DEF FUNCTION extract_google_drive_links:
+  CONSTANT: re_pattern_drive = "https://drive\.google\.com/[^\s]+"
+  CONSTANT: re_pattern_docs = "https://docs\.google\.com/[^\s]+"
+  ASSIGN: soup = CALL BeautifulSoup(html_content, 'html.parser')
+  ASSIGN: links = CALL soup.find_all('a', href=True)
+  ACTION: list(set(gd_links))
+DEF FUNCTION extract_content_from_htmls:
+  ASSIGN: folder = CALL os.path.abspath(folder)
+  ASSIGN: output = CALL os.path.join(folder, 'output')
+  ACTION: os.makedirs(output)
+  ASSIGN: output = CALL os.path.join(output, 'habitat_docs.json')
+  ASSIGN: all_htmls = CALL glob(f'{folder}/*.html')
+  ASSIGN: html_file = CALL os.path.basename(html)
+  ACTION: open(html, 'r')
+  ASSIGN: html_content = CALL f.read()
+  ASSIGN: content = CALL extract_text_from_html(html_content)
+  ASSIGN: content = CALL re.sub('\\s*\\n(\\s*\\n)*', '\n\n', content)
+  ASSIGN: content = CALL content.strip()
+  ASSIGN: gd_links = CALL extract_google_drive_links(html_content)
+  IF CHECK: len(content) == 0
+    ACTION: len(content)
+  ACTION: docs.append({'metadata': {'page_id': page_id, 'language': lang...)
+  ACTION: open(output, 'w')
+  ACTION: json.dump(docs, f)
+DEF FUNCTION get_docs_as_json:
+  ASSIGN: df_pages = CALL get_pages_dataframe(html_folder)
+  ASSIGN: df_groups = CALL get_groups_dataframe(mappings_folder, selected_groups)
+  ASSIGN: contents = CALL extract_content_from_htmls(html_folder)
+  ASSIGN: extracted_date = CALL re.search('\\d{8}', html_folder).group(0)
+  CONFIG: knw_base = '_'.join(Path(html_folder).name.split('-')[:-1])
+  ASSIGN: df_pages['ID'] = CALL df_pages['ID'].astype(int)
+  ASSIGN: doc_id = CALL int(doc['metadata']['page_id'])
+  IF CHECK: metadata.empty
+    ACTION: Exception(f'No metadata found for page_id: {doc_id}')
+  IF CHECK: type(doc['metadata']['page_title']) is not str
+    ACTION: type(doc['metadata']['page_title'])
+    CONSTANT: doc['metadata']['page_title'] = ""
+  IF CHECK: 'Last Edit Time (UTC)' in metadata.columns
+    CONSTANT: doc['metadata']['last_edit_date'] = ""
+  IF CHECK: df_groups is not None
+    IF CHECK: not groups.empty
+      IF CHECK: group in groups
+  ACTION: json_docs.append(doc)
+  ACTION: failed_docs.append(doc_id)
+DEF FUNCTION get_content_with_page_title:
+  IF CHECK: 'page_title' in doc['metadata'] and len(doc['metadata']['page_title']) > 3
+    ACTION: len(doc['metadata']['page_title'])
+    ACTION: f'# {doc['metadata']['page_title']}\n{doc['page_content']}'.strip()
+  ACTION: doc['page_content'].strip()
+DEF FUNCTION embed_chunks:
+  IF CHECK: source == 'cohere'
+    ASSIGN: embeddings = CALL embedding_func(doc.page_content)
+    IF CHECK: source == 'openai'
+      ASSIGN: embeddings = CALL embedding_func.embed_query(doc.page_content)
+      IF CHECK: source == 'gemini'
+        ASSIGN: embeddings = CALL embedding_func(doc.page_content)
+  ACTION: results.append({'doc': doc, 'embeddings': embeddings})
+DEF FUNCTION cohere_embedding_func:
+  ASSIGN: co = CALL cohere.ClientV2(api_key=Config.fetch('COHERE_API_KEY'))
+  CONFIG: response = co.embed(inputs=text_inputs, model='embed-v4.0', input_type='search_document', embedding_types=['float'])
+  ACTION: time.sleep(2)
+  CONFIG: response = co.embed(inputs=text_inputs, model='embed-v4.0', input_type='search_document', embedding_types=['float'])
+DEF FUNCTION gemini_embedding_func:
+  ASSIGN: PROJECT_ID = CALL os.environ.get('PROJECT_ID', 'cdo-gen-ai-island-np-204b23')
+  ASSIGN: REGION = CALL os.environ.get('REGION', 'northamerica-northeast1')
+  ACTION: vertexai.init()
+  CONSTANT: task_type = "RETRIEVAL_DOCUMENT"
+  ASSIGN: text_input = CALL TextEmbeddingInput(query, task_type)
+  CONFIG: model = TextEmbeddingModel.from_pretrained('gemini-embedding-001')
+  ASSIGN: embeddings = CALL model.get_embeddings([text_input])
+  ACTION: Exception(f'Error while embedding using gemini-embedding-001...)
+DEF FUNCTION embed_docs:
+  IF CHECK: existing_embeds is not None
+    ASSIGN: new_docs = CALL filter_existing_documents(new_docs, existing_embeds['docs'])
+  CONFIG: text_splitter = TokenTextSplitter(chunk_size=500, chunk_overlap=50, encoding_name='cl100k_base')
+  ASSIGN: source_chunks = CALL text_splitter.split_documents(filtered_list_docs)
+  IF CHECK: len(source_chunks_filtered) == 0
+    ACTION: len(source_chunks_filtered)
+    LOG_EVENT: "No documents to embed"
+  IF CHECK: not doc.page_content.startswith(f'# {doc.metadata['page_title']}')
+    ACTION: doc.page_content.startswith(f'# {doc.metadata['page_title']}')
+  IF CHECK: source == 'cohere'
+    IF CHECK: source == 'openai'
+      CONFIG: embedding_func = get_default_embedding_func(embedding_model_name)
+      IF CHECK: source == 'gemini'
+  IF CHECK: num_threads > 1
+    ASSIGN: num_threads = CALL min(num_threads, len(source_chunks_filtered))
+    ACTION: concurrent.futures.ThreadPoolExecutor()
+    ACTION: concurrent.futures.wait(futures)
+    ACTION: concurrent.futures.as_completed(futures)
+    ASSIGN: (new_docs, embeddings) = CALL future.result()
+    ACTION: result_embeddings.extend(embeddings)
+    CONFIG: (new_docs, embeddings) = embed_chunks(source_chunks_filtered, embedding_func, source=source)
+    ACTION: result_embeddings.extend(embeddings)
+    LOG_EVENT: "Error embedding documents:"
+DEF FUNCTION filter_existing_documents:
+  ASSIGN: existing_doc = CALL next((d for d in existing_docs if d.metadata['page_id']...)
+  IF CHECK: existing_doc.metadata['original_content'] != doc.metadata['original_content']
+    ACTION: docs_to_keep.append(doc)
+DEF FUNCTION remove_deleted_pages:
+
+--- PIPELINE: utils\habitat_utils_gdrive.py ---
+DEF FUNCTION get_custom_loaders:
+DEF FUNCTION get_gdrive_metadata:
+  ASSIGN: storage_client = CALL storage.Client(project=project_name)
+  CONFIG: bucket = storage_client.bucket(bucket_name_gdrive)
+  CONFIG: metadata_paths = sorted([b.name for b in list(bucket.list_blobs(prefix=bucket_prefix_gdrive)) if fnmatch(b.name, f'{bucket_prefix_gdrive}/*/metadata/results.json')])
+  ACTION: enumerate(metadata_list)
+  CONFIG: sync_obj['blob'] = bucket.blob(f'{bucket_prefix_gdrive}/{version}/objects/{sync_obj['id']}')
+DEF FUNCTION consolidate_gdrive_metadata:
+  ASSIGN: consolidated_metadata_dict = CALL metadata_list[0].copy()
+  ACTION: range(1, len(metadata_list))
+  IF CHECK: obj['id'] in consolidated_synched_id_list
+  ACTION: consolidated_metadata_dict['synched'].append(obj)
+DEF FUNCTION filter_processed_docs:
+  IF CHECK: not existing_embeddings
+    LOG_EVENT: "Previous embeddings is None. Processing all Gdrive docs from scratch!"
+  CONFIG: existing_embeddings_ids = set([obj.metadata['page_id'] for obj in existing_embeddings['docs'] if obj.metadata['knowledge_base'] == 'gdrive'])
+  ACTION: zip(existing_embeddings['docs'], existing_embeddings['...)
+  IF CHECK: obj_docs.metadata['knowledge_base'] != 'gdrive' or obj_docs.metadata['page_id'] in gdrive_metadata_ids
+    ACTION: filtered_docs_list.append(obj_docs)
+    ACTION: filtered_embeds_list.append(obj_embeds)
+DEF FUNCTION get_gdrive_docs:
+  CONFIG: metadata_list = get_gdrive_metadata(project_name, bucket_name_gdrive, bucket_prefix_gdrive)
+  ASSIGN: gdrive_metadata = CALL consolidate_gdrive_metadata(metadata_list)
+  CONFIG: (gdrive_metadata_filtered, existing_embeddings) = filter_processed_docs(existing_embeddings, gdrive_metadata)
+  IF CHECK: gdrive_metadata_filtered['synched'] != []
+    CONFIG: gdrive_docs = extract_gdrive_docs(local_path, html_docs, gdrive_metadata_filtered['synched'], selected_groups)
+    LOG_EVENT: "No new files in gdrive data!"
+DEF FUNCTION extract_gdrive_content:
+  IF CHECK: data['content_type'] in ['image/png', 'image/jpeg']
+    CONFIG: loader = gdrive_loaders[data['content_type']](file_path, post_processors=[clean_extra_whitespace])
+    CONFIG: loader = gdrive_loaders[data['content_type']](file_path, strategy='fast', post_processors=[clean_extra_whitespace])
+  ASSIGN: result = CALL loader.load()
+DEF FUNCTION detect_language_gdrive:
+  ASSIGN: cleaned_name = CALL re.sub('[^a-zA-Z]', ' ', file_name)
+  IF CHECK: 'en' in words or 'eng' in words or 'english' in words
+    IF CHECK: 'fr' in words or 'french' in words
+  ASSIGN: sample_content = CALL ' '.join([word for word in page_content.replace('\n', ' ')....)
+  ASSIGN: result = CALL detector.detect_language_of(sample_content).iso_code_639_1.name.lower()
+DEF FUNCTION detect_tm_group_gdrive:
+  DATA_STRUCT: group_taxonomy_word_mappings = Keys['MGT', 'MP', 'Frontline', 'Retail', 'TRL', 'MNU', 'THSI', 'TI', 'ADT', 'SSA']
+  DATA_STRUCT: group_taxonomy_any_match_mappings = Keys['TWU', 'SQET', 'SAMT']
+  ASSIGN: cleaned_name = CALL re.sub('[^a-zA-Z]', ' ', file_name)
+  ACTION: g.lower()
+  ACTION: file_name.lower()
+  IF CHECK: len(groups) == 0
+    ACTION: len(groups)
+    IF CHECK: sum([1 for w in special_case_one if w.lower() in words]) == 2
+      ACTION: sum([1 for w in special_case_one if w.lower() in words...)
+      ACTION: groups.append('Health')
+    IF CHECK: sum([1 for w in special_case_two if w.lower() in words]) == 2
+      ACTION: sum([1 for w in special_case_two if w.lower() in words...)
+      ACTION: groups.extend(['TWU', 'SAMT', 'SQET'])
+  IF CHECK: file_name == '2025 App A and B Temp App C Term Guide EN.pdf'
+  IF CHECK: groups != []
+DEF FUNCTION get_tm_group_from_html:
+  IF CHECK: gdrive_id in link
+DEF FUNCTION get_document_profile:
+DEF FUNCTION extract_gdrive_docs:
+  ASSIGN: gdrive_loaders = CALL get_custom_loaders()
+  ASSIGN: detector = CALL LanguageDetectorBuilder.from_languages(*languages).build()
+  ASSIGN: temp = CALL get_document_profile()
+  IF CHECK: gdrive_obj['content_type'] not in gdrive_loaders
+  ACTION: gdrive_obj['blob'].download_to_filename(f'{local_path}/{gdrive_obj['id']}')
+  CONFIG: result = extract_gdrive_content(local_path, gdrive_loaders, gdrive_obj)
+  IF CHECK: result == [] or len(re.sub('[^a-zA-Z]', '', result[0].page_content)) == 0
+    ACTION: len(re.sub('[^a-zA-Z]', '', result[0].page_content))
+  ASSIGN: language = CALL detect_language_gdrive(detector=detector, file_name=gdrive_obj['name'], p...)
+  ASSIGN: assigned_group = CALL detect_tm_group_gdrive(file_name=gdrive_obj['name'], selected_groups=sele...)
+  IF CHECK: assigned_group != {}
+    ACTION: temp['metadata'].update(assigned_group)
+    ASSIGN: assigned_group = CALL get_tm_group_from_html(html_docs=html_docs, gdrive_id=gdrive_obj['id'], s...)
+    IF CHECK: assigned_group != {}
+      ACTION: temp['metadata'].update(assigned_group)
+  CONSTANT: temp['metadata']['original_content'] = ""
+  CONSTANT: temp['metadata']['knowledge_base'] = "gdrive"
+  ASSIGN: temp['metadata']['extracted_date'] = CALL datetime.fromtimestamp(time.time(), timezone.utc).strftime('%Y-%m-%d')
+  ACTION: gdrive_docs.append(temp)
+
+
+================================================================================
+END OF AST PARSING RESULTS
+================================================================================

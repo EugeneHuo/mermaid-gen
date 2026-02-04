@@ -5,12 +5,22 @@ import pathspec
 from pathlib import Path
 import tokenize
 import io
-from typing import List, Dict
+import subprocess
+import json
+from typing import List, Dict, Optional
 
 app = typer.Typer()
 FUEL_PROXY_URL = "https://api-beta.fuelix.ai"
 
 import ast
+
+# Entry point detection patterns
+ENTRY_POINT_PATTERNS = {
+    'python': ['main.py', 'app.py', '__main__.py', 'run.py', 'pipeline.py'],
+    'javascript': ['index.js', 'app.js', 'main.js', 'server.js'],
+    'typescript': ['index.ts', 'app.ts', 'main.ts', 'server.ts'],
+    'java': ['Main.java', 'App.java', 'Application.java']
+}
 
 # Comment extraction function
 def extract_comments_with_context(source_code: str) -> List[Dict]:
@@ -273,6 +283,102 @@ def parse_pipeline_script(file_content, include_comments=False):
         return "\n".join(visitor.structure)
     except Exception as e:
         return f"Error parsing script: {e}"
+
+# NEW: Git diff detection functions
+def is_git_repository(path):
+    """Check if the path is a git repository"""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+def get_changed_files(path, base_ref="HEAD"):
+    """Get list of changed files using git diff"""
+    try:
+        # Get uncommitted changes
+        result = subprocess.run(
+            ["git", "diff", "--name-only", base_ref],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        changed_files = [f.strip() for f in result.stdout.strip().split('\n') if f.strip()]
+        
+        # Also get untracked files
+        result_untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        untracked_files = [f.strip() for f in result_untracked.stdout.strip().split('\n') if f.strip()]
+        
+        all_changed = list(set(changed_files + untracked_files))
+        
+        # Filter for supported file types
+        supported_extensions = ('.py', '.js', '.ts', '.java')
+        filtered_files = [f for f in all_changed if f.endswith(supported_extensions)]
+        
+        return filtered_files
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+# NEW: Entry point detection functions
+def detect_entry_points(path):
+    """Detect entry point files in the project"""
+    entry_points = []
+    
+    for root, dirs, files in os.walk(path):
+        # Skip hidden directories
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        
+        for file in files:
+            # Check against entry point patterns
+            for lang, patterns in ENTRY_POINT_PATTERNS.items():
+                if file in patterns:
+                    rel_path = os.path.relpath(os.path.join(root, file), path)
+                    entry_points.append({
+                        'file': rel_path,
+                        'language': lang,
+                        'full_path': os.path.join(root, file)
+                    })
+    
+    return entry_points
+
+def scan_project_structure(path):
+    """Scan and summarize project structure"""
+    structure = {
+        'directories': [],
+        'file_types': {},
+        'total_files': 0
+    }
+    
+    for root, dirs, files in os.walk(path):
+        # Skip hidden directories
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        
+        rel_dir = os.path.relpath(root, path)
+        if rel_dir != '.':
+            structure['directories'].append(rel_dir)
+        
+        for file in files:
+            structure['total_files'] += 1
+            ext = os.path.splitext(file)[1]
+            if ext:
+                structure['file_types'][ext] = structure['file_types'].get(ext, 0) + 1
+    
+    return structure
     
 # 1. Helper to read .gitignore so we don't upload garbage
 def get_gitignore_spec(path):
@@ -283,7 +389,16 @@ def get_gitignore_spec(path):
     return None
 
 # 2. The Ingestion Logic
-def ingest_directory(root_path, spec, include_comments=False):
+def ingest_directory(root_path, spec, include_comments=False, files_to_process=None):
+    """
+    Ingest directory with optional file filtering
+    
+    Args:
+        root_path: Root directory to scan
+        spec: Gitignore spec for filtering
+        include_comments: Whether to include comments in parsing
+        files_to_process: Optional list of specific files to process (for incremental mode)
+    """
     project_context = ""
     
     # Walk the directory
@@ -294,6 +409,11 @@ def ingest_directory(root_path, spec, include_comments=False):
         for file in files:
             file_path = os.path.join(root, file)
             rel_path = os.path.relpath(file_path, root_path)
+            
+            # If specific files are provided, only process those
+            if files_to_process is not None:
+                if rel_path not in files_to_process and rel_path.replace('\\', '/') not in files_to_process:
+                    continue
             
             # Skip ignored files (node_modules, venv, etc.)
             if spec and spec.match_file(rel_path):
@@ -323,6 +443,58 @@ def ingest_directory(root_path, spec, include_comments=False):
                     
     return project_context
 
+def ingest_entry_points_and_structure(root_path, spec, include_comments=False):
+    """
+    Ingest only entry points and project structure for new projects
+    """
+    context = ""
+    
+    # 1. Scan project structure
+    structure = scan_project_structure(root_path)
+    context += "="*80 + "\n"
+    context += "PROJECT STRUCTURE OVERVIEW\n"
+    context += "="*80 + "\n"
+    context += f"Total Files: {structure['total_files']}\n"
+    context += f"Total Directories: {len(structure['directories'])}\n\n"
+    context += "File Types Distribution:\n"
+    for ext, count in sorted(structure['file_types'].items(), key=lambda x: x[1], reverse=True):
+        context += f"  {ext}: {count} files\n"
+    context += "\n"
+    context += "Directory Structure:\n"
+    for dir_path in sorted(structure['directories'])[:20]:  # Limit to first 20 dirs
+        context += f"  📁 {dir_path}\n"
+    context += "\n"
+    
+    # 2. Detect and parse entry points
+    entry_points = detect_entry_points(root_path)
+    context += "="*80 + "\n"
+    context += "DETECTED ENTRY POINTS\n"
+    context += "="*80 + "\n"
+    
+    if entry_points:
+        for ep in entry_points:
+            context += f"\n🎯 Entry Point: {ep['file']} ({ep['language']})\n"
+            context += "-"*80 + "\n"
+            
+            # Parse the entry point file
+            try:
+                with open(ep['full_path'], 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    
+                if ep['file'].endswith('.py'):
+                    skeleton = parse_pipeline_script(content, include_comments=include_comments)
+                    context += skeleton + "\n"
+                else:
+                    # For non-Python files, show preview
+                    preview = content[:2000]
+                    context += preview + "\n"
+            except Exception as e:
+                context += f"Error reading file: {e}\n"
+    else:
+        context += "No standard entry points detected.\n"
+    
+    return context
+
 # 3. The Command
 @app.command()
 def main(
@@ -335,18 +507,71 @@ def main(
     use_case: str = typer.Option(None, help="What the pipeline is used for (e.g., 'RAG system', 'Analytics', 'ETL')"),
     team_owner: str = typer.Option(None, help="Team or person responsible for this pipeline"),
     include_comments: bool = typer.Option(False, "--include-comments", "-c", help="Include code comments in AST parsing for better context"),
-    debug: bool = typer.Option(False, "--debug", "-d", help="Save intermediate AST parsing results to ast_debug_output.txt")
+    debug: bool = typer.Option(False, "--debug", "-d", help="Save intermediate AST parsing results to ast_debug_output.txt"),
+    mode: str = typer.Option("auto", "--mode", "-m", help="Scan mode: 'auto' (detect), 'new' (entry points only), 'incremental' (git diff), 'full' (all files)"),
+    entry_points_only: bool = typer.Option(False, "--entry-points-only", "-e", help="Scan only entry point files and folder structure (for new projects)")
 ):
     """
     Reads a local folder and generates a Mermaid Architecture diagram.
+    
+    Modes:
+    - auto: Automatically detect if project is new or existing (checks for git and diagram.html)
+    - new: Scan file names, folder structures, and entry point files only
+    - incremental: Use git diff to find changed files (existing projects)
+    - full: Scan all files in the directory (default behavior)
     """
     print(f"📂 Scanning project at: {path}...")
+    
+    # Determine the actual mode to use
+    actual_mode = mode
+    if mode == "auto":
+        # Auto-detect mode
+        is_git_repo = is_git_repository(path)
+        has_diagram = os.path.exists("diagram.html")
+        
+        if is_git_repo and has_diagram:
+            actual_mode = "incremental"
+            print("🔍 Auto-detected: Existing project (using incremental mode)")
+        elif is_git_repo:
+            actual_mode = "new"
+            print("🔍 Auto-detected: New git project (using entry points mode)")
+        else:
+            actual_mode = "full"
+            print("🔍 Auto-detected: Non-git project (using full scan mode)")
+    
+    # Override with entry_points_only flag if set
+    if entry_points_only:
+        actual_mode = "new"
+    
+    print(f"📋 Mode: {actual_mode}")
     
     if include_comments:
         print("💬 Comment extraction enabled - including developer comments in analysis")
     
     spec = get_gitignore_spec(path)
-    context = ingest_directory(path, spec, include_comments=include_comments)
+    
+    # Execute based on mode
+    if actual_mode == "new":
+        print("🎯 Scanning entry points and project structure...")
+        context = ingest_entry_points_and_structure(path, spec, include_comments=include_comments)
+    elif actual_mode == "incremental":
+        print("🔄 Detecting changed files with git diff...")
+        changed_files = get_changed_files(path)
+        
+        if changed_files is None:
+            print("⚠️  Not a git repository. Falling back to full scan mode.")
+            context = ingest_directory(path, spec, include_comments=include_comments)
+        elif len(changed_files) == 0:
+            print("✅ No changes detected. Diagram is up to date.")
+            return
+        else:
+            print(f"📝 Found {len(changed_files)} changed file(s):")
+            for f in changed_files:
+                print(f"   - {f}")
+            context = ingest_directory(path, spec, include_comments=include_comments, files_to_process=changed_files)
+    else:  # full mode
+        print("📁 Scanning all files in directory...")
+        context = ingest_directory(path, spec, include_comments=include_comments)
     
     print(f"📦 Context size: {len(context)} characters. Sending to LLM...")
     

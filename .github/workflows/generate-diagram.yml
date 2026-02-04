@@ -1,0 +1,120 @@
+name: Generate/Update Mermaid Diagram
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  analyze-state:
+    name: "The Scout - Analyze Repository State"
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.check.outputs.mode }}
+      has_diagram: ${{ steps.check.outputs.has_diagram }}
+      changed_files_count: ${{ steps.check.outputs.changed_files_count }}
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Full history for git diff
+      
+      - name: Check for existing diagram
+        id: check
+        run: |
+          if [ -f "diagram.html" ]; then
+            echo "has_diagram=true" >> $GITHUB_OUTPUT
+            echo "mode=incremental" >> $GITHUB_OUTPUT
+            echo "📊 Existing diagram found - using INCREMENTAL mode"
+          else
+            echo "has_diagram=false" >> $GITHUB_OUTPUT
+            echo "mode=full" >> $GITHUB_OUTPUT
+            echo "🆕 No diagram found - using FULL mode"
+          fi
+          
+          # Get changed files count
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            CHANGED_COUNT=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | wc -l)
+          else
+            CHANGED_COUNT=$(git diff --name-only HEAD~1 HEAD | wc -l)
+          fi
+          echo "changed_files_count=$CHANGED_COUNT" >> $GITHUB_OUTPUT
+          echo "📝 Changed files: $CHANGED_COUNT"
+
+  generate-diagram:
+    name: "The Engine - Generate/Update Diagram"
+    needs: analyze-state
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      # CONDITIONAL: Full Generation Path
+      - name: Generate Full Diagram
+        if: needs.analyze-state.outputs.mode == 'full'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "🗺️ Running FULL diagram generation..."
+          python main_incremental.py . --mode full
+      
+      # CONDITIONAL: Incremental Update Path
+      - name: Update Diagram Incrementally
+        if: needs.analyze-state.outputs.mode == 'incremental'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "🔄 Running INCREMENTAL diagram update..."
+          python main_incremental.py . --mode incremental --debug
+      
+      # Common: Commit and Push
+      - name: Commit updated diagram
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add diagram.html diff_context.txt incremental_update_debug.txt || true
+          git diff --staged --quiet || git commit -m "🤖 Auto-update diagram [${{ needs.analyze-state.outputs.mode }} mode]"
+      
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+      
+      # Upload artifacts for review
+      - name: Upload diagram artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: mermaid-diagram-${{ needs.analyze-state.outputs.mode }}
+          path: |
+            diagram.html
+            diff_context.txt
+            incremental_update_debug.txt
+          if-no-files-found: ignore
+      
+      # Summary
+      - name: Job Summary
+        run: |
+          echo "## 📊 Diagram Generation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Mode**: ${{ needs.analyze-state.outputs.mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Has Existing Diagram**: ${{ needs.analyze-state.outputs.has_diagram }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Changed Files**: ${{ needs.analyze-state.outputs.changed_files_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.analyze-state.outputs.mode }}" == "incremental" ]; then
+            echo "✅ Incremental update completed - only affected nodes were regenerated" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Full diagram generation completed" >> $GITHUB_STEP_SUMMARY
+          fi

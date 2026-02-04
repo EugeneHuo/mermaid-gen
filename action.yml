@@ -1,0 +1,176 @@
+name: 'Mermaid Diagram Generator'
+description: 'Generate or incrementally update Mermaid architecture diagrams from your codebase'
+author: 'EugeneHuo'
+
+branding:
+  icon: 'git-branch'
+  color: 'blue'
+
+inputs:
+  path:
+    description: 'Path to your project folder to analyze'
+    required: false
+    default: '.'
+  
+  openai-api-key:
+    description: 'OpenAI API key for GPT-4o'
+    required: true
+  
+  mode:
+    description: 'Scan mode: auto, new, incremental, or full'
+    required: false
+    default: 'auto'
+  
+  pipeline-name:
+    description: 'Name of the pipeline (e.g., "Document Embedding Pipeline")'
+    required: false
+  
+  pipeline-purpose:
+    description: 'What this pipeline does'
+    required: false
+  
+  data-type:
+    description: 'Type of data being processed (e.g., "PDF documents")'
+    required: false
+  
+  data-source:
+    description: 'Where the data comes from (e.g., "GCS bucket")'
+    required: false
+  
+  use-case:
+    description: 'What the pipeline is used for (e.g., "RAG system")'
+    required: false
+  
+  team-owner:
+    description: 'Team or person responsible for this pipeline'
+    required: false
+  
+  include-comments:
+    description: 'Include code comments in AST parsing'
+    required: false
+    default: 'false'
+  
+  debug:
+    description: 'Enable debug output'
+    required: false
+    default: 'false'
+  
+  force-full:
+    description: 'Force full regeneration even if incremental is possible'
+    required: false
+    default: 'false'
+
+outputs:
+  diagram-path:
+    description: 'Path to the generated diagram.html file'
+    value: ${{ steps.generate.outputs.diagram-path }}
+  
+  mode-used:
+    description: 'The mode that was actually used (full or incremental)'
+    value: ${{ steps.generate.outputs.mode-used }}
+  
+  affected-nodes:
+    description: 'Number of nodes affected (incremental mode only)'
+    value: ${{ steps.generate.outputs.affected-nodes }}
+  
+  impact-level:
+    description: 'Impact level of changes (none, low, medium, high, full)'
+    value: ${{ steps.generate.outputs.impact-level }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      shell: bash
+      run: |
+        pip install -r ${{ github.action_path }}/requirements.txt
+    
+    - name: Generate/Update Diagram
+      id: generate
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+      run: |
+        # Build command with optional parameters
+        CMD="python ${{ github.action_path }}/main_incremental.py ${{ inputs.path }} --mode ${{ inputs.mode }}"
+        
+        # Add optional metadata
+        if [ -n "${{ inputs.pipeline-name }}" ]; then
+          CMD="$CMD --pipeline-name '${{ inputs.pipeline-name }}'"
+        fi
+        
+        if [ -n "${{ inputs.pipeline-purpose }}" ]; then
+          CMD="$CMD --pipeline-purpose '${{ inputs.pipeline-purpose }}'"
+        fi
+        
+        if [ -n "${{ inputs.data-type }}" ]; then
+          CMD="$CMD --data-type '${{ inputs.data-type }}'"
+        fi
+        
+        if [ -n "${{ inputs.data-source }}" ]; then
+          CMD="$CMD --data-source '${{ inputs.data-source }}'"
+        fi
+        
+        if [ -n "${{ inputs.use-case }}" ]; then
+          CMD="$CMD --use-case '${{ inputs.use-case }}'"
+        fi
+        
+        if [ -n "${{ inputs.team-owner }}" ]; then
+          CMD="$CMD --team-owner '${{ inputs.team-owner }}'"
+        fi
+        
+        # Add flags
+        if [ "${{ inputs.include-comments }}" = "true" ]; then
+          CMD="$CMD --include-comments"
+        fi
+        
+        if [ "${{ inputs.debug }}" = "true" ]; then
+          CMD="$CMD --debug"
+        fi
+        
+        if [ "${{ inputs.force-full }}" = "true" ]; then
+          CMD="$CMD --force-full"
+        fi
+        
+        # Execute command
+        echo "Running: $CMD"
+        eval $CMD
+        
+        # Set outputs
+        echo "diagram-path=diagram.html" >> $GITHUB_OUTPUT
+        
+        # Detect mode used
+        if [ -f "incremental_update_debug.txt" ]; then
+          MODE_USED="incremental"
+          # Extract affected nodes count and impact from debug file
+          AFFECTED=$(grep "Affected Nodes:" incremental_update_debug.txt | sed 's/.*\[\(.*\)\]/\1/' | tr ',' '\n' | wc -l)
+          IMPACT=$(grep "Impact:" incremental_update_debug.txt | awk '{print $2}')
+          echo "mode-used=$MODE_USED" >> $GITHUB_OUTPUT
+          echo "affected-nodes=$AFFECTED" >> $GITHUB_OUTPUT
+          echo "impact-level=$IMPACT" >> $GITHUB_OUTPUT
+        else
+          echo "mode-used=full" >> $GITHUB_OUTPUT
+          echo "affected-nodes=0" >> $GITHUB_OUTPUT
+          echo "impact-level=full" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Summary
+      shell: bash
+      run: |
+        echo "## 📊 Mermaid Diagram Generation" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Mode**: ${{ steps.generate.outputs.mode-used }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Diagram**: \`diagram.html\`" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ steps.generate.outputs.mode-used }}" = "incremental" ]; then
+          echo "- **Affected Nodes**: ${{ steps.generate.outputs.affected-nodes }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Impact Level**: ${{ steps.generate.outputs.impact-level }}" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Diagram generation completed successfully!" >> $GITHUB_STEP_SUMMARY

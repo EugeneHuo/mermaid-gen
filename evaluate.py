@@ -1,134 +1,143 @@
 import os
 import subprocess
 import re
-import glob
 import sys
-from pathlib import Path
 
 # Configuration
-PIPELINE_ROOT = r"C:\Users\T773534\Downloads\gen-ai-data-ingestion-1\gen-ai-data-ingestion\src"
-# List of pipelines to evaluate. You can add more folder names here.
-TARGET_PIPELINES = [
-    "aia_milo_pipeline"
+# Using raw strings for Windows paths
+PIPELINES = [
+    r"C:\Users\T773534\Downloads\gen-ai-data-ingestion-1\gen-ai-data-ingestion\src\aia_onesource_pipeline",
+    r"C:\Users\T773534\Downloads\gen-ai-data-ingestion-1\gen-ai-data-ingestion\src\aia_crtc_pipeline"
 ]
+TOOL_SCRIPT = "main.py"
+PYTHON_CMD = sys.executable
 
-def count_readme_steps(pipeline_path):
-    """Counts steps in README.md based on '#### Number.' pattern."""
-    readme_path = os.path.join(pipeline_path, "README.md")
+def count_tokens(text):
+    # Approximation: 1 token ~= 4 characters
+    return len(text) / 4
+
+def get_raw_code_token_count(directory):
+    total_chars = 0
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if file.endswith('.py'):
+                try:
+                    with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                        total_chars += len(f.read())
+                except:
+                    pass
+    return count_tokens(" " * total_chars)
+
+def parse_mermaid_steps(html_path):
+    if not os.path.exists(html_path):
+        return 0
+    try:
+        with open(html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        match = re.search(r'<div class="mermaid">\s*(.*?)\s*</div>', content, re.DOTALL)
+        if match:
+            mermaid_code = match.group(1)
+            # Count nodes: Look for identifiers followed by brackets/parens
+            # e.g. A[Text], B(Text), C{Text}
+            nodes = re.findall(r'\w+\s*[\[\(\{\<].*?[\]\)\}\>]', mermaid_code)
+            return len(nodes)
+    except Exception as e:
+        print(f"Error parsing mermaid: {e}")
+    return 0
+
+def parse_readme_steps(directory):
+    readme_path = os.path.join(directory, "README.md")
     if not os.path.exists(readme_path):
         return 0
     
-    try:
-        with open(readme_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            # Regex to find headers like "#### 1. Initial Setup"
-            # We look for #### followed by a number and a dot
-            matches = re.findall(r'####\s+\d+\.', content)
-            return len(matches)
-    except Exception as e:
-        print(f"Error reading README at {readme_path}: {e}")
-        return 0
-
-def calculate_raw_tokens(pipeline_path):
-    """Calculates total characters in .py files to simulate raw LLM scan."""
-    total_chars = 0
-    for root, dirs, files in os.walk(pipeline_path):
-        # Skip hidden dirs and venv
-        dirs[:] = [d for d in dirs if not d.startswith('.') and 'venv' not in d]
-        
-        for file in files:
-            if file.endswith('.py'):
-                file_path = os.path.join(root, file)
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        total_chars += len(f.read())
-                except Exception:
-                    pass
-    return total_chars
-
-def get_tool_metrics():
-    """Extracts metrics from the tool's output files."""
-    tool_chars = 0
-    diagram_steps = 0
+    with open(readme_path, 'r', encoding='utf-8') as f:
+        content = f.read()
     
-    # 1. Get context size from debug output
-    if os.path.exists("ast_debug_output.txt"):
-        try:
-            with open("ast_debug_output.txt", 'r', encoding='utf-8') as f:
-                content = f.read()
-                # Look for "Total context size: 1234 characters"
-                match = re.search(r"Total context size: (\d+) characters", content)
-                if match:
-                    tool_chars = int(match.group(1))
-        except Exception as e:
-            print(f"Error reading debug output: {e}")
+    # Heuristic: Count numbered list items (1. Step)
+    # We look for lines starting with a number and a dot
+    steps = re.findall(r'^\s*\d+\.\s+', content, re.MULTILINE)
+    return len(steps)
 
-    # 2. Get step count from diagram
-    if os.path.exists("diagram.html"):
-        try:
-            with open("diagram.html", 'r', encoding='utf-8') as f:
-                content = f.read()
-                # Count "subgraph Step" occurrences
-                # This matches the tool's output format: subgraph Step1_Ingestion, etc.
-                matches = re.findall(r'subgraph Step\d+', content)
-                diagram_steps = len(matches)
-        except Exception as e:
-            print(f"Error reading diagram: {e}")
-            
-    return tool_chars, diagram_steps
+def evaluate_pipeline(pipeline_path):
+    pipeline_name = os.path.basename(pipeline_path)
+    print(f"Evaluating {pipeline_name}...")
+    
+    # 1. Run the tool
+    # We assume .env is loaded by the subprocess or we pass env vars
+    cmd = [PYTHON_CMD, TOOL_SCRIPT, pipeline_path, "--debug", "--include-comments"]
+    
+    # Load .env manually to ensure subprocess gets it
+    env = os.environ.copy()
+    if os.path.exists(".env"):
+        with open(".env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    env[k] = v
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        if result.returncode != 0:
+            print(f"Tool failed for {pipeline_name}: {result.stderr}")
+            # Continue anyway to see if we can salvage metrics
+    except Exception as e:
+        print(f"Execution error: {e}")
+        return None
+
+    # 2. Analyze AST Debug Output (Tool Usage)
+    ast_file = "ast_debug_output.txt"
+    tool_token_count = 0
+    if os.path.exists(ast_file):
+        with open(ast_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+            # Extract "Total context size: X characters"
+            match = re.search(r'Total context size: (\d+) characters', content)
+            if match:
+                tool_token_count = int(match.group(1)) / 4
+            else:
+                tool_token_count = count_tokens(content)
+        
+        # Rename debug output to keep it
+        os.rename(ast_file, f"ast_debug_{pipeline_name}.txt")
+
+    # 3. Analyze Raw Code (Baseline)
+    raw_token_count = get_raw_code_token_count(pipeline_path)
+    
+    # 4. Analyze Result (Diagram)
+    diagram_file = "diagram.html"
+    diagram_steps = parse_mermaid_steps(diagram_file)
+    if os.path.exists(diagram_file):
+        os.rename(diagram_file, f"diagram_{pipeline_name}.html")
+    
+    # 5. Analyze README (Ground Truth Proxy)
+    readme_steps = parse_readme_steps(pipeline_path)
+    
+    return {
+        "pipeline": pipeline_name,
+        "raw_tokens": int(raw_token_count),
+        "tool_tokens": int(tool_token_count),
+        "savings_percent": f"{(1 - tool_token_count/raw_token_count)*100:.1f}%" if raw_token_count else "0%",
+        "readme_steps": readme_steps,
+        "diagram_steps": diagram_steps
+    }
 
 def main():
-    print(f"{'Pipeline':<30} | {'README Steps':<12} | {'Diagram Steps':<13} | {'Raw Chars':<10} | {'Tool Chars':<10} | {'Savings':<8}")
-    print("-" * 100)
-
-    for pipeline_name in TARGET_PIPELINES:
-        full_path = os.path.join(PIPELINE_ROOT, pipeline_name)
-        
-        if not os.path.exists(full_path):
-            print(f"Skipping {pipeline_name} (not found)")
-            continue
-
-        # 1. Static Analysis
-        readme_steps = count_readme_steps(full_path)
-        raw_chars = calculate_raw_tokens(full_path)
-
-        # 2. Run the Tool
-        # We run main.py with the --debug flag to get AST stats
-        # We capture stdout to avoid cluttering the console
-        try:
-            # Load API key from .env manually for the subprocess
-            env = os.environ.copy()
-            # Force UTF-8 encoding for the subprocess to handle emojis
-            env["PYTHONIOENCODING"] = "utf-8"
+    results = []
+    for p in PIPELINES:
+        if os.path.exists(p):
+            res = evaluate_pipeline(p)
+            if res:
+                results.append(res)
+        else:
+            print(f"Pipeline path not found: {p}")
             
-            with open(".env", "r") as f:
-                for line in f:
-                    if line.strip() and not line.startswith("#"):
-                        key, value = line.strip().split("=", 1)
-                        env[key] = value
-
-            subprocess.run(
-                [sys.executable, "main.py", full_path, "--debug"], 
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                env=env
-            )
-        except subprocess.CalledProcessError as e:
-            print(f"Error running tool on {pipeline_name}")
-            print(f"STDERR: {e.stderr.decode('utf-8', errors='replace')}")
-            continue
-
-        # 3. Extract Results
-        tool_chars, diagram_steps = get_tool_metrics()
-
-        # 4. Calculate Savings
-        savings = 0
-        if raw_chars > 0:
-            savings = ((raw_chars - tool_chars) / raw_chars) * 100
-
-        # 5. Print Row
-        print(f"{pipeline_name:<30} | {readme_steps:<12} | {diagram_steps:<13} | {raw_chars:<10} | {tool_chars:<10} | {savings:.1f}%")
+    print("\n" + "="*95)
+    print(f"{'Pipeline':<25} | {'Raw Tok':<10} | {'Tool Tok':<10} | {'Saved':<8} | {'README Steps':<12} | {'Diagram Nodes':<12}")
+    print("-" * 95)
+    for r in results:
+        print(f"{r['pipeline']:<25} | {r['raw_tokens']:<10} | {r['tool_tokens']:<10} | {r['savings_percent']:<8} | {r['readme_steps']:<12} | {r['diagram_steps']:<12}")
+    print("="*95)
 
 if __name__ == "__main__":
     main()
