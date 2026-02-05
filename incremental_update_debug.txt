@@ -1,0 +1,227 @@
+================================================================================
+INCREMENTAL UPDATE DEBUG
+================================================================================
+
+Affected Nodes: ['G', 'E', 'C']
+Impact: medium (37.5%)
+
+================================================================================
+EXISTING DIAGRAM:
+================================================================================
+
+flowchart TD
+    subgraph Metadata
+        title["Pipeline Name: koodo_json_to_tpuf_np"]
+        purpose["Purpose: Process Koodo articles and upload embeddings to Turbopuffer"]
+        note["Owner: Not specified"]
+    end
+
+    subgraph Step1_Ingestion
+        A[" Source: https://www.koodomobile.com/static/help/api/articles<br/> Data Type: JSON articles"]
+        B[" Method: get_articles<br/> Config: koodo-api-articles-url"]
+    end
+
+    subgraph Step2_Chunking
+        C[" Method: RecursiveCharacterTextSplitter<br/> Size: 1900 tokens, Overlap: 100<br/> Encoding: cl100k_base2"]
+    end
+
+    subgraph Step3_Embedding
+        D[" Model: Config[EMBEDDING_MODEL_NAME]<br/> Service: OpenAI API<br/> Cache: embeddings.pkl"]
+    end
+
+    subgraph Step4_Storage
+        E[" Storage: GCS Bucket<br/> Config: BUCKET_NAME<br/> File: PICKLE_FILE"]
+        F[" Vector DB: Turbopuffer<br/> Namespace: Config[INDEX_NAME]<br/> Alias: Config[ALIAS_NAME]"]
+    end
+
+    subgraph Step5_Logging
+        G[" Log Table: Config[LOG_TABLE_ID]<br/> Alerts: Config[ALERT_WEBHOOK_URL]"]
+    end
+
+    Metadata --> A
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+
+================================================================================
+DIFF CONTEXT:
+================================================================================
+
+diff --git a/src/aia_koodo_pipeline/koodo_json_to_tpuf_np.py b/src/aia_koodo_pipeline/koodo_json_to_tpuf_np.py
+index f4921e8e..ab219a5e 100644
+--- a/src/aia_koodo_pipeline/koodo_json_to_tpuf_np.py
++++ b/src/aia_koodo_pipeline/koodo_json_to_tpuf_np.py
+@@ -266,22 +266,22 @@ try:
+     markdown_docs = []
+     count = 0
+     for doc_num in range(len(langchain_docs)):
+         md_header_splits = markdown_splitter.split_text(langchain_docs[doc_num].page_content)
+         for md_doc in md_header_splits:
+             md_doc.metadata = langchain_docs[doc_num].metadata
+         count+=1
+         markdown_docs+=md_header_splits
+ 
+     recursive_text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+-        chunk_size=1475,
+-        chunk_overlap=50,
++        chunk_size=1900,
++        chunk_overlap=100,
+         encoding_name="cl100k_base2"
+     )
+ 
+     # recursive_text_splitter = RecursiveCharacterTextSplitter(
+     #     chunk_size = 1500,
+     #     chunk_overlap  = 50,
+     #     length_function = len,
+     # )
+     print(f"Number of documents: {len(langchain_docs)}")
+     print(f"Number of markdown documents: {len(markdown_docs)}")
+
+
+================================================================================
+NODE CONTEXTS:
+================================================================================
+
+Node G:
+  Content:  Log Table: Config[LOG_TABLE_ID]<br/> Alerts: Config[ALERT_WEBHOOK_URL]
+  Subgraph: Step5_Logging
+  Keywords: []
+
+Node E:
+  Content:  Storage: GCS Bucket<br/> Config: BUCKET_NAME<br/> File: PICKLE_FILE
+  Subgraph: Step4_Storage
+  Keywords: ['bucket', 'cache', 'gcs', 'pickle', 'storage']
+
+Node C:
+  Content:  Method: RecursiveCharacterTextSplitter<br/> Size: 1900 tokens, Overlap: 100<br/> Encoding: cl100k_base2
+  Subgraph: Step2_Chunking
+  Keywords: ['textsplitter', 'chunking', 'split']
+
+================================================================================
+PROMPT SENT TO LLM:
+================================================================================
+
+
+    You are updating an EXISTING Mermaid diagram with new code changes.
+    
+    
+    CRITICAL INSTRUCTIONS - LOCKED TEMPLATE APPROACH:
+    1. **PRESERVE THE EXISTING STRUCTURE**: Keep ALL node IDs, subgraph names, and connections EXACTLY as shown
+    2. **UPDATE ONLY AFFECTED NODES**: Only modify the content of nodes listed in "AFFECTED NODES" section
+    3. **MAINTAIN ALL CONNECTIONS**: Do not add, remove, or modify any arrows/edges
+    4. **KEEP UNAFFECTED NODES UNCHANGED**: Copy them exactly as they appear in the existing diagram
+    5. **EXTRACT ACTUAL VALUES**: For affected nodes, extract real configuration values from the diff context
+    
+    EXISTING DIAGRAM (LOCKED TEMPLATE):
+    ```mermaid
+flowchart TD
+    subgraph Metadata
+        title["Pipeline Name: koodo_json_to_tpuf_np"]
+        purpose["Purpose: Process Koodo articles and upload embeddings to Turbopuffer"]
+        note["Owner: Not specified"]
+    end
+
+    subgraph Step1_Ingestion
+        A[" Source: https://www.koodomobile.com/static/help/api/articles<br/> Data Type: JSON articles"]
+        B[" Method: get_articles<br/> Config: koodo-api-articles-url"]
+    end
+
+    subgraph Step2_Chunking
+        C[" Method: RecursiveCharacterTextSplitter<br/> Size: 1900 tokens, Overlap: 100<br/> Encoding: cl100k_base2"]
+    end
+
+    subgraph Step3_Embedding
+        D[" Model: Config[EMBEDDING_MODEL_NAME]<br/> Service: OpenAI API<br/> Cache: embeddings.pkl"]
+    end
+
+    subgraph Step4_Storage
+        E[" Storage: GCS Bucket<br/> Config: BUCKET_NAME<br/> File: PICKLE_FILE"]
+        F[" Vector DB: Turbopuffer<br/> Namespace: Config[INDEX_NAME]<br/> Alias: Config[ALIAS_NAME]"]
+    end
+
+    subgraph Step5_Logging
+        G[" Log Table: Config[LOG_TABLE_ID]<br/> Alerts: Config[ALERT_WEBHOOK_URL]"]
+    end
+
+    Metadata --> A
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    ```
+    
+    AFFECTED NODES (Update these only):
+    G, E, C
+    
+    NODE DETAILS:
+    
+  Node G:
+    - Current Content:  Log Table: Config[LOG_TABLE_ID]<br/> Alerts: Config[ALERT_WEBHOOK_URL]...
+    - Subgraph: Step5_Logging
+    - Keywords: 
+    - Connected to: F
+  Node E:
+    - Current Content:  Storage: GCS Bucket<br/> Config: BUCKET_NAME<br/> File: PICKLE_FILE...
+    - Subgraph: Step4_Storage
+    - Keywords: bucket, cache, gcs, pickle, storage
+    - Connected to: D, F
+  Node C:
+    - Current Content:  Method: RecursiveCharacterTextSplitter<br/> Size: 1900 tokens, Overlap: 100<br/> Encoding: cl100k_base2...
+    - Subgraph: Step2_Chunking
+    - Keywords: textsplitter, chunking, split
+    - Connected to: B, D
+    
+    CODE CHANGES (from git diff):
+    ```
+diff --git a/src/aia_koodo_pipeline/koodo_json_to_tpuf_np.py b/src/aia_koodo_pipeline/koodo_json_to_tpuf_np.py
+index f4921e8e..ab219a5e 100644
+--- a/src/aia_koodo_pipeline/koodo_json_to_tpuf_np.py
++++ b/src/aia_koodo_pipeline/koodo_json_to_tpuf_np.py
+@@ -266,22 +266,22 @@ try:
+     markdown_docs = []
+     count = 0
+     for doc_num in range(len(langchain_docs)):
+         md_header_splits = markdown_splitter.split_text(langchain_docs[doc_num].page_content)
+         for md_doc in md_header_splits:
+             md_doc.metadata = langchain_docs[doc_num].metadata
+         count+=1
+         markdown_docs+=md_header_splits
+ 
+     recursive_text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+-        chunk_size=1475,
+-        chunk_overlap=50,
++        chunk_size=1900,
++        chunk_overlap=100,
+         encoding_name="cl100k_base2"
+     )
+ 
+     # recursive_text_splitter = RecursiveCharacterTextSplitter(
+     #     chunk_size = 1500,
+     #     chunk_overlap  = 50,
+     #     length_function = len,
+     # )
+     print(f"Number of documents: {len(langchain_docs)}")
+     print(f"Number of markdown documents: {len(markdown_docs)}")
+
+    ```
+    
+    TASK:
+    1. Analyze the code changes in the diff context
+    2. Extract NEW configuration values (chunk_size, model names, etc.)
+    3. Update ONLY the affected nodes with the new values
+    4. Keep everything else EXACTLY the same
+    5. Output the COMPLETE updated diagram
+    
+    EXAMPLE OF WHAT TO DO:
+    If chunk_size changed from 1000 to 1500 in the diff:
+    - Find the node containing "chunk_size" or "Chunking"
+    - Update that node's content: "• Size: 1000" → "• Size: 1500"
+    - Keep all other nodes, connections, and structure unchanged
+    
+    Output ONLY the complete Mermaid code with updates applied.
+    

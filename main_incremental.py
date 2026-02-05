@@ -93,13 +93,14 @@ def main_with_incremental(
     elif actual_mode == "incremental":
         print("🔄 Using INCREMENTAL update mode with Parse-Filter-Update logic...")
         
-        # Try incremental update
+        # Try incremental update with semantic diff parsing
         use_incremental, incremental_prompt, mode_info = process_incremental_update(
             path=path,
             include_comments=include_comments,
             debug=debug,
             force_full=force_full,
-            metadata_section=metadata_section
+            metadata_section=metadata_section,
+            api_key=api_key
         )
         
         if use_incremental:
@@ -275,14 +276,16 @@ def main_with_incremental(
 </html>
 """
     
-    with open("diagram.html", "w", encoding="utf-8") as f:
+    # Save diagram in the target directory, not current directory
+    diagram_path = os.path.join(path, "diagram.html")
+    with open(diagram_path, "w", encoding="utf-8") as f:
         f.write(html_content)
         
-    print("✅ Diagram generated! Open 'diagram.html' in your browser.")
+    print(f"✅ Diagram generated! Saved to: {diagram_path}")
     
     # Optional: Automatically open it
     import webbrowser
-    webbrowser.open("diagram.html")
+    webbrowser.open(diagram_path)
 
 
 # Make this the default command (no command name needed)

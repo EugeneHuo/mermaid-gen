@@ -9,22 +9,23 @@ from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 
 
-def generate_diff_context(repo_path: str, base_ref: str = "HEAD~1") -> Tuple[str, Dict]:
+def generate_diff_context(repo_path: str, base_ref: str = "HEAD~1", api_key: str = None) -> Tuple[str, Dict]:
     """
-    Generate diff_context.txt from git diff
+    Generate diff_context.txt from git diff with semantic parsing
     
     Args:
         repo_path: Path to git repository
         base_ref: Base reference for diff (default: HEAD~1)
+        api_key: OpenAI API key for semantic parsing (required)
         
     Returns:
-        Tuple of (diff_output, parsed_diff_data)
+        Tuple of (diff_output, semantic_diff_data)
     """
     try:
-        # Get detailed diff with context - ONLY for code files
+        # Get detailed diff with context - ONLY for code files, EXCLUDE .md files
         # Filter to only include Python, JavaScript, TypeScript, Java files
         result = subprocess.run(
-            ["git", "diff", base_ref, "HEAD", "--unified=5", "--", "*.py", "*.js", "*.ts", "*.java"],
+            ["git", "diff", base_ref, "HEAD", "--unified=10", "--", "*.py", "*.js", "*.ts", "*.java", "*.go", "*.rb"],
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -33,11 +34,11 @@ def generate_diff_context(repo_path: str, base_ref: str = "HEAD~1") -> Tuple[str
         
         diff_output = result.stdout
         
-        # If no code files changed, try without filter
+        # If no code files changed, try without filter but EXCLUDE .md files
         if not diff_output.strip():
-            print("⚠️  No code file changes detected, checking all files...")
+            print("⚠️  No code file changes detected, checking all files (excluding .md)...")
             result = subprocess.run(
-                ["git", "diff", base_ref, "HEAD", "--unified=5"],
+                ["git", "diff", base_ref, "HEAD", "--unified=10", "--", ".", ":(exclude)*.md"],
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
@@ -60,9 +61,15 @@ def generate_diff_context(repo_path: str, base_ref: str = "HEAD~1") -> Tuple[str
         
         print(f"✅ Generated diff_context.txt ({len(diff_output)} characters)")
         
-        # Parse the diff
-        from change_mapper import parse_git_diff_output
-        parsed_data = parse_git_diff_output(diff_output)
+        # Use semantic parsing with LLM
+        if api_key:
+            from semantic_diff_parser import generate_semantic_diff_context, save_semantic_diff
+            parsed_data = generate_semantic_diff_context(diff_output, api_key)
+            save_semantic_diff(parsed_data)
+        else:
+            print("⚠️  No API key provided, falling back to regex parsing")
+            from change_mapper import parse_git_diff_output
+            parsed_data = parse_git_diff_output(diff_output)
         
         return diff_output, parsed_data
         
@@ -246,13 +253,14 @@ def create_html_from_mermaid(mermaid_code: str, output_path: str) -> bool:
         return False
 
 
-def should_use_incremental_mode(repo_path: str, threshold: float = 0.5) -> Tuple[bool, str]:
+def should_use_incremental_mode(repo_path: str, threshold: float = 0.5, api_key: str = None) -> Tuple[bool, str]:
     """
     Determine if incremental mode should be used based on change impact
     
     Args:
         repo_path: Path to repository
         threshold: Percentage threshold for switching to full mode (0.0-1.0)
+        api_key: OpenAI API key for semantic diff parsing
         
     Returns:
         Tuple of (use_incremental, reason)
@@ -283,7 +291,7 @@ def should_use_incremental_mode(repo_path: str, threshold: float = 0.5) -> Tuple
         diagram = parse_mermaid_diagram(mermaid_code)
         
         # Generate diff and analyze impact
-        diff_output, diff_data = generate_diff_context(repo_path)
+        diff_output, diff_data = generate_diff_context(repo_path, api_key=api_key)
         
         if not diff_output:
             return False, "Could not generate diff"

@@ -51,7 +51,14 @@ class ChangeMapper:
         Map code changes to diagram nodes
         
         Args:
-            diff_data: Dictionary containing:
+            diff_data: Dictionary containing either:
+                SEMANTIC FORMAT (preferred):
+                - changes: List of semantic change objects
+                - summary: Overall summary
+                - changed_files: List of changed file paths
+                - impact_assessment: Impact level
+                
+                LEGACY FORMAT (fallback):
                 - changed_files: List of changed file paths
                 - changed_functions: List of changed function names
                 - changed_configs: Dict of config key -> new value
@@ -59,6 +66,67 @@ class ChangeMapper:
         
         Returns:
             List of node IDs that should be updated
+        """
+        affected_nodes = set()
+        
+        # Check if this is semantic diff format
+        if 'changes' in diff_data and isinstance(diff_data['changes'], list):
+            # Use semantic mapping (preferred)
+            affected_nodes.update(self._map_semantic_changes(diff_data))
+        else:
+            # Fallback to legacy regex-based mapping
+            affected_nodes.update(self._map_legacy_changes(diff_data))
+        
+        return list(affected_nodes)
+    
+    def _map_semantic_changes(self, semantic_diff: Dict) -> Set[str]:
+        """
+        Map semantic changes to diagram nodes using LLM-parsed data
+        
+        Args:
+            semantic_diff: Semantic diff dictionary with 'changes' list
+            
+        Returns:
+            Set of affected node IDs
+        """
+        affected_nodes = set()
+        
+        for change in semantic_diff.get('changes', []):
+            component = change.get('component', '').lower()
+            
+            # Strategy 1: Use LLM-suggested affected nodes
+            if 'affected_nodes' in change:
+                for suggested_node in change['affected_nodes']:
+                    # Try to find matching node IDs
+                    suggested_lower = suggested_node.lower()
+                    for node_id in self.diagram.nodes.keys():
+                        if suggested_lower in node_id.lower() or node_id.lower() in suggested_lower:
+                            affected_nodes.add(node_id)
+            
+            # Strategy 2: Map by component name
+            for step_type, keywords in self.STEP_KEYWORDS.items():
+                if component in keywords or step_type in component:
+                    nodes = self._find_nodes_by_step_type(step_type)
+                    affected_nodes.update(nodes)
+            
+            # Strategy 3: Map by field name
+            field = change.get('field', '').lower()
+            if field:
+                for node_id, keywords in self.node_keywords.items():
+                    if field in keywords or any(kw in field for kw in keywords):
+                        affected_nodes.add(node_id)
+        
+        return affected_nodes
+    
+    def _map_legacy_changes(self, diff_data: Dict) -> Set[str]:
+        """
+        Legacy regex-based mapping (fallback)
+        
+        Args:
+            diff_data: Legacy diff data format
+            
+        Returns:
+            Set of affected node IDs
         """
         affected_nodes = set()
         
@@ -96,7 +164,7 @@ class ChangeMapper:
         if diff_text:
             affected_nodes.update(self._analyze_diff_text(diff_text))
         
-        return list(affected_nodes)
+        return affected_nodes
     
     def _find_nodes_by_step_type(self, step_type: str) -> List[str]:
         """Find all nodes related to a specific step type"""

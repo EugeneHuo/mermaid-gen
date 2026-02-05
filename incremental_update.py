@@ -81,7 +81,7 @@ def generate_incremental_prompt(existing_diagram: str, diff_context: str, affect
 
 
 def process_incremental_update(path: str, include_comments: bool = False, debug: bool = False,
-                               force_full: bool = False, metadata_section: str = "") -> tuple:
+                               force_full: bool = False, metadata_section: str = "", api_key: str = None) -> tuple:
     """
     Process incremental diagram update
     
@@ -91,6 +91,7 @@ def process_incremental_update(path: str, include_comments: bool = False, debug:
         debug: Enable debug output
         force_full: Force full regeneration
         metadata_section: Metadata section for prompt
+        api_key: OpenAI API key for semantic diff parsing
         
     Returns:
         Tuple of (use_incremental, prompt_or_context, mode_info)
@@ -113,7 +114,7 @@ def process_incremental_update(path: str, include_comments: bool = False, debug:
         mode_info['fallback_reason'] = "--force-full flag set"
         return False, None, mode_info
     
-    use_incremental, reason = should_use_incremental_mode(path, threshold=0.5)
+    use_incremental, reason = should_use_incremental_mode(path, threshold=0.5, api_key=api_key)
     
     if not use_incremental:
         mode_info['fallback_reason'] = reason
@@ -133,8 +134,8 @@ def process_incremental_update(path: str, include_comments: bool = False, debug:
     
     print(f"📊 Existing diagram: {len(diagram.nodes)} nodes, {len(diagram.edges)} connections")
     
-    # Generate diff context
-    diff_output, diff_data = generate_diff_context(path)
+    # Generate diff context with semantic parsing
+    diff_output, diff_data = generate_diff_context(path, api_key=api_key)
     
     if not diff_output:
         mode_info['fallback_reason'] = "Could not generate diff context"

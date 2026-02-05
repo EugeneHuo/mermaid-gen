@@ -1,0 +1,33 @@
+{
+  "changes": [
+    {
+      "component": "Chunking",
+      "type": "config_update",
+      "field": "chunk_size",
+      "old_value": "1475",
+      "new_value": "1900",
+      "impact": "Larger chunks may improve context retention but increase token usage, potentially affecting downstream processing and embedding generation.",
+      "affected_nodes": [
+        "chunking",
+        "text_splitting"
+      ]
+    },
+    {
+      "component": "Chunking",
+      "type": "config_update",
+      "field": "chunk_overlap",
+      "old_value": "50",
+      "new_value": "100",
+      "impact": "Increased overlap may improve context continuity between chunks but could lead to higher redundancy and token usage.",
+      "affected_nodes": [
+        "chunking",
+        "text_splitting"
+      ]
+    }
+  ],
+  "summary": "The chunk size and overlap for the RecursiveCharacterTextSplitter were updated, potentially impacting text splitting and downstream components.",
+  "changed_files": [
+    "src/aia_koodo_pipeline/koodo_json_to_tpuf_np.py"
+  ],
+  "impact_assessment": "low"
+}
