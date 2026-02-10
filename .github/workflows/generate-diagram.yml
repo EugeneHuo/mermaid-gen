@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:  # Manual trigger
 
+permissions:
+  contents: write  # Required to commit and push diagram updates
+
 jobs:
   analyze-state:
     name: "The Scout - Analyze Repository State"
@@ -16,7 +19,7 @@ jobs:
       changed_files_count: ${{ steps.check.outputs.changed_files_count }}
     
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history for git diff
       
@@ -48,12 +51,12 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       
@@ -95,7 +98,7 @@ jobs:
       
       # Upload artifacts for review
       - name: Upload diagram artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: mermaid-diagram-${{ needs.analyze-state.outputs.mode }}
           path: |
