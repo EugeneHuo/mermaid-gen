@@ -1,93 +1,71 @@
 # Mermaid Diagram Generator - GitHub Action
 
-[![GitHub Action](https://img.shields.io/badge/GitHub-Action-blue?logo=github-actions)](https://github.com/EugeneHuo/mermaid-gen)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+Auto-generate/update Mermaid architecture diagrams from code using GPT-4o.
 
-Automatically generate or incrementally update Mermaid architecture diagrams from your codebase using AI.
+## Features
 
-## ✨ Features
+- 🤖 GPT-4o powered code analysis
+- ⚡ Incremental updates (Parse-Filter-Update)
+- 🔒 Structure preservation during updates
+- 📊 Impact analysis
+- 🎯 Smart fallback to full regen
+- 🐍 Multi-language (Python, JS, TS, Java)
 
-- 🤖 **AI-Powered**: Uses GPT-4o to analyze your code and generate diagrams
-- ⚡ **Incremental Updates**: Only updates affected nodes when code changes (Parse-Filter-Update logic)
-- 🔒 **Structure Preservation**: Maintains diagram layout and connections during updates
-- 📊 **Impact Analysis**: Shows what percentage of diagram is affected by changes
-- 🎯 **Smart Fallback**: Automatically falls back to full regeneration when needed
-- 🐍 **Multi-Language**: Supports Python, JavaScript, TypeScript, Java
+## Quick Start
 
-## 🚀 Quick Start
-
-### 1. Add to Your Workflow
-
-Create `.github/workflows/diagram.yml`:
+**1. Create `.github/workflows/diagram.yml`:**
 
 ```yaml
 name: Generate Diagram
-
-on:
-  push:
-    branches: [main]
+on: [push]
 
 jobs:
   diagram:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
-      - uses: EugeneHuo/mermaid-gen@main
+
+      - uses: EugeneHuo/mermaid-gen@v1.0.0
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-      
+
       - run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add diagram.html
-          git diff --staged --quiet || git commit -m "🤖 Update diagram"
+          git config user.name "github-actions[bot]"
+          git config user.email "action@github.com"
+          git add diagram.html || true
+          git commit -m "Update diagram" || true
           git push
 ```
 
-### 2. Add OpenAI API Key
+**2. Add secret:** Settings → Secrets → `OPENAI_API_KEY`
 
-Go to your repository settings:
-```
-Settings → Secrets → New repository secret
-Name: OPENAI_API_KEY
-Value: sk-your-api-key-here
-```
+**3. Enable write:** Settings → Actions → Read/write permissions
 
-### 3. Enable Workflow Permissions
+**4. Push. Done.**
 
-```
-Settings → Actions → General → Workflow permissions
-✅ Read and write permissions
-```
+## Usage
 
-### 4. Push and Watch! 🎉
-
-The action will automatically generate or update your diagram on every push.
-
-## 📖 Usage
-
-### Basic Example
-
+**Minimal:**
 ```yaml
-- uses: EugeneHuo/mermaid-gen@main
+- uses: EugeneHuo/mermaid-gen@v1.0.0
   with:
     openai-api-key: ${{ secrets.OPENAI_API_KEY }}
 ```
 
-### With All Options
-
+**All options:**
 ```yaml
-- uses: EugeneHuo/mermaid-gen@main
+- uses: EugeneHuo/mermaid-gen@v1.0.0
   with:
     openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-    mode: auto
+    mode: auto                        # auto|new|incremental|full
     path: .
     pipeline-name: "My Pipeline"
     pipeline-purpose: "Processes data"
-    data-type: "JSON files"
+    data-type: "JSON"
     data-source: "API"
     use-case: "Analytics"
     team-owner: "Data Team"
@@ -95,221 +73,133 @@ The action will automatically generate or update your diagram on every push.
     debug: true
 ```
 
-### With Outputs
-
+**With outputs:**
 ```yaml
-- id: diagram
-  uses: EugeneHuo/mermaid-gen@main
+- id: gen
+  uses: EugeneHuo/mermaid-gen@v1.0.0
   with:
     openai-api-key: ${{ secrets.OPENAI_API_KEY }}
 
-- run: |
-    echo "Mode: ${{ steps.diagram.outputs.mode-used }}"
-    echo "Impact: ${{ steps.diagram.outputs.impact-level }}"
-    echo "Affected: ${{ steps.diagram.outputs.affected-nodes }}"
+- run: echo "${{ steps.gen.outputs.mode-used }}, ${{ steps.gen.outputs.impact-level }}"
 ```
 
-## 📥 Inputs
+## Inputs
 
-| Input | Required | Default | Description |
-|-------|----------|---------|-------------|
+| Input | Req | Default | Description |
+|-------|-----|---------|-------------|
 | `openai-api-key` | ✅ | - | OpenAI API key |
-| `mode` | ❌ | `auto` | `auto`, `new`, `incremental`, or `full` |
-| `path` | ❌ | `.` | Path to analyze |
-| `pipeline-name` | ❌ | - | Pipeline name |
-| `pipeline-purpose` | ❌ | - | What it does |
-| `data-type` | ❌ | - | Data type processed |
-| `data-source` | ❌ | - | Data source |
-| `use-case` | ❌ | - | Use case |
-| `team-owner` | ❌ | - | Team/owner |
-| `include-comments` | ❌ | `false` | Include code comments |
-| `debug` | ❌ | `false` | Enable debug output |
-| `force-full` | ❌ | `false` | Force full regeneration |
+| `mode` | - | `auto` | auto/new/incremental/full |
+| `path` | - | `.` | Project path |
+| `pipeline-name` | - | - | Pipeline name |
+| `pipeline-purpose` | - | - | What it does |
+| `data-type` | - | - | Data type |
+| `data-source` | - | - | Source |
+| `use-case` | - | - | Use case |
+| `team-owner` | - | - | Owner |
+| `include-comments` | - | `false` | Include comments |
+| `debug` | - | `false` | Debug mode |
+| `force-full` | - | `false` | Force full regen |
 
-## 📤 Outputs
+## Outputs
 
-| Output | Description |
-|--------|-------------|
-| `diagram-path` | Path to `diagram.html` |
-| `mode-used` | Mode used (`full` or `incremental`) |
-| `affected-nodes` | Number of affected nodes |
-| `impact-level` | Impact level (`none`, `low`, `medium`, `high`, `full`) |
+| Output | Value |
+|--------|-------|
+| `diagram-path` | `diagram.html` |
+| `mode-used` | `full` or `incremental` |
+| `affected-nodes` | Count |
+| `impact-level` | none/low/medium/high/full |
 
-## 🎯 Modes
+## Modes
 
-### Auto Mode (Recommended)
+**Auto (default):** Detects diagram → incremental or full
+**Incremental:** Updates changed nodes only → fast/cheap
+**Full:** Regen entire diagram → for major refactors
+**New:** Entry points only → initial scan
+
+## Examples
+
+**PR comment:**
 ```yaml
-mode: auto
-```
-- Detects if diagram exists
-- Uses incremental if possible
-- Falls back to full when needed
-
-### Incremental Mode
-```yaml
-mode: incremental
-```
-- Updates only changed nodes
-- Preserves diagram structure
-- Faster and cheaper
-
-### Full Mode
-```yaml
-mode: full
-```
-- Regenerates entire diagram
-- Best for major refactors
-- Ignores existing diagram
-
-## 💡 Examples
-
-### Example 1: Auto-Update on Push
-
-```yaml
-on:
-  push:
-    branches: [main]
-
-jobs:
-  diagram:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      
-      - uses: EugeneHuo/mermaid-gen@main
-        with:
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-```
-
-### Example 2: PR Comments
-
-```yaml
-- id: diagram
-  uses: EugeneHuo/mermaid-gen@main
+- id: gen
+  uses: EugeneHuo/mermaid-gen@v1.0.0
   with:
     openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-    debug: true
 
 - if: github.event_name == 'pull_request'
-  uses: actions/github-script@v6
-  with:
-    script: |
-      github.rest.issues.createComment({
-        issue_number: context.issue.number,
-        owner: context.repo.owner,
-        repo: context.repo.repo,
-        body: `📊 Diagram updated! Mode: ${{ steps.diagram.outputs.mode-used }}`
-      });
+  run: echo "Mode: ${{ steps.gen.outputs.mode-used }}, Impact: ${{ steps.gen.outputs.impact-level }}"
 ```
 
-### Example 3: Weekly Full Regeneration
-
+**Weekly full regen:**
 ```yaml
 on:
   schedule:
-    - cron: '0 0 * * 0'  # Sunday midnight
-
+    - cron: '0 0 * * 0'
 jobs:
-  regenerate:
+  regen:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: EugeneHuo/mermaid-gen@main
+      - uses: actions/checkout@v4
+      - uses: EugeneHuo/mermaid-gen@v1.0.0
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           force-full: true
 ```
 
-### Example 4: Monorepo Multi-Service
-
+**Monorepo:**
 ```yaml
 strategy:
   matrix:
-    service: [api, worker, frontend]
-
+    svc: [api, worker, ui]
 steps:
-  - uses: EugeneHuo/mermaid-gen@main
+  - uses: EugeneHuo/mermaid-gen@v1.0.0
     with:
       openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-      path: ./services/${{ matrix.service }}
-      pipeline-name: "${{ matrix.service }} Service"
+      path: ./services/${{ matrix.svc }}
 ```
 
-## 🔧 How It Works
+## How It Works
 
-### Incremental Update Flow
-
+**Incremental flow:**
 ```
-1. PARSE
-   ↓ Extract existing diagram structure
-   
-2. FILTER  
-   ↓ Analyze git diff to find changes
-   ↓ Map changes to diagram nodes
-   
-3. UPDATE
-   ↓ Generate targeted LLM prompt
-   ↓ Update only affected nodes
-   ↓ Preserve everything else
+PARSE → extract diagram
+FILTER → git diff → map to nodes
+UPDATE → targeted LLM → update nodes only
 ```
 
-### Change Impact Levels
+**Impact levels:**
+- None (0%) → skip
+- Low (<20%) → incremental
+- Medium (20-50%) → incremental
+- High (50-80%) → consider full
+- Full (>80%) → full regen
 
-| Impact | % Changed | Action |
-|--------|-----------|--------|
-| None | 0% | Skip |
-| Low | <20% | Incremental ✅ |
-| Medium | 20-50% | Incremental ✅ |
-| High | 50-80% | Consider full ⚠️ |
-| Full | >80% | Full regen ❌ |
+## Docs
 
-## 📚 Documentation
+- [ACTION_USAGE.md](ACTION_USAGE.md) - Full guide
+- [INCREMENTAL_UPDATE_GUIDE.md](INCREMENTAL_UPDATE_GUIDE.md) - Technical details
+- [examples/](examples/) - Workflow examples
 
-- **[ACTION_USAGE.md](ACTION_USAGE.md)** - Complete usage guide
-- **[INCREMENTAL_UPDATE_GUIDE.md](INCREMENTAL_UPDATE_GUIDE.md)** - Detailed technical docs
-- **[examples/](examples/)** - Example workflows
+## Troubleshooting
 
-## 🐛 Troubleshooting
+| Issue | Fix |
+|-------|-----|
+| Action not found | Repo must be public or accessible |
+| API key not set | Add to repo secrets |
+| Permission denied | Enable write in Actions settings |
+| No changes detected | Use `fetch-depth: 0` in checkout |
 
-### "Action not found"
-Make sure the repository is public or you have access.
+## Version Pinning
 
-### "OPENAI_API_KEY not set"
-Add the secret to your repository settings.
+```yaml
+uses: EugeneHuo/mermaid-gen@v1.0.0  # Tag (recommended)
+uses: EugeneHuo/mermaid-gen@main    # Branch (auto-updates)
+uses: EugeneHuo/mermaid-gen@abc123  # SHA (locked)
+```
 
-### "Permission denied"
-Enable write permissions in Actions settings.
+## License
 
-### "No changes detected"
-Use `fetch-depth: 0` in checkout step.
-
-## 🤝 Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Submit a pull request
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) for details
-
-## 🙏 Acknowledgments
-
-- Built with OpenAI GPT-4o
-- Mermaid.js for diagram rendering
-- GitHub Actions for automation
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/EugeneHuo/mermaid-gen/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/EugeneHuo/mermaid-gen/discussions)
-- **Documentation**: See docs above
+MIT
 
 ---
 
-**Made with ❤️ by [EugeneHuo](https://github.com/EugeneHuo)**
-
-⭐ Star this repo if you find it useful!
+Built with GPT-4o • [Issues](https://github.com/EugeneHuo/mermaid-gen/issues) • ⭐ Star if useful
