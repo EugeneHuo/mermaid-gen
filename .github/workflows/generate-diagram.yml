@@ -85,9 +85,22 @@ jobs:
       # Common: Commit and Push
       - name: Commit updated diagram
         run: |
+          echo "📍 Current directory: $(pwd)"
+          echo "📂 Files in current directory:"
+          ls -la diagram.html || echo "diagram.html not found!"
+
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+
+          echo "➕ Adding files to git..."
           git add diagram.html diff_context.txt incremental_update_debug.txt || true
+
+          echo "📊 Git status after add:"
+          git status --short
+
+          echo "🔍 Checking staged changes..."
+          git diff --staged --name-only
+
           git diff --staged --quiet || git commit -m "🤖 Auto-update diagram [${{ needs.analyze-state.outputs.mode }} mode]"
       
       - name: Push changes
