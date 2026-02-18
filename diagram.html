@@ -8,22 +8,20 @@
     <div class="mermaid">
 
 flowchart TD
-    subgraph Metadata
-        title(Pipeline Name)
-        purpose[Purpose: description]
-        note[Owner: Team Name]
-    end
+    title(Pipeline Name)
+    purpose[Purpose: description]
+    note[Owner: Team Name]
 
     subgraph Step1_Ingestion
         A[" Type: PDF documents<br/> Source: GCS bucket"]
     end
 
     subgraph Step2_Chunking
-        B[" Method: RecursiveCharacterTextSplitter<br/> Size: 1200 tokens, Overlap: 100<br/> Splits by: Paragraph headers"]
+        B[" Method: RecursiveCharacterTextSplitter<br/> Size: 1200 tokens, Overlap: 100"]
     end
 
     subgraph Step3_Embedding
-        C[" Model: Config[embedding-model]<br/> Service: OpenAI API<br/> Cache: embeddings.pkl stores: doc_embeddings_dict"]
+        C[" Model: Config[EMBEDDING_MODEL_NAME]<br/> Service: OpenAI API<br/> Cache: embeddings.pkl"]
     end
 
     subgraph Step4_Storage
