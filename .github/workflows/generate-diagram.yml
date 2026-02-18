@@ -93,7 +93,9 @@ jobs:
           git config --local user.name "github-actions[bot]"
 
           echo "➕ Adding files to git..."
-          git add diagram.html diff_context.txt incremental_update_debug.txt || true
+          git add diagram.html || true
+          git add diff_context.txt || true
+          git add incremental_update_debug.txt || true
 
           echo "📊 Git status after add:"
           git status --short
